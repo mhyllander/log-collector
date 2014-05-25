@@ -4,9 +4,10 @@ module LogCollector
     Default_FlushTime = 1
     Default_FlushSize = 1000
 
-    def initialize(hostname,servers,spool_queue)
-      @spool_queue = spool_queue
+    def initialize(hostname,servers,spool_queue,state_queue)
       @hostname = hostname
+      @spool_queue = spool_queue
+      @state_queue = state_queue
 
       @flush_time = Default_FlushTime
       @flush_size = Default_FlushSize
@@ -78,6 +79,13 @@ module LogCollector
 
         sendop = proc do
           $logger.debug("send #{@sendbuf.length} events to logstash")
+          
+          # collect the accumulated final state
+          final_events = {}
+          @sendbuf.each do |ev|
+            final_events["#{ev.path}//#{ev.dev}//#{ev.inode}"] = ev
+          end
+
           msg = formatted_msg.to_json
           compress = Zlib::Deflate.deflate(msg)
 
@@ -91,6 +99,10 @@ module LogCollector
           # If using ffi-rzmq directly:
           @spool_socket.send_string(compress)
           @spool_socket.recv_string(rcvmsg = '')
+
+          # save state
+          @state_queue.push final_events.values
+          
           rcvmsg
         end
         sendcb = proc do |response|

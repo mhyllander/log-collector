@@ -1,15 +1,17 @@
+require 'assertion_error'
+
 module EventMachine
 
   class LimitedQueue < Queue
-    attr_accessor :low_water_mark
     attr_accessor :high_water_mark
+    attr_accessor :low_water_mark
 
     include EM::Deferrable
 
     def initialize
       super
-      @low_water_mark = @high_water_mark = -1
       @full = false
+      @high_water_mark = @low_water_mark = -1
     end
 
     # Pop items off the queue, running the block on the reactor thread. The pop
@@ -55,6 +57,11 @@ module EventMachine
     def adjust_full_state
       return if @high_water_mark==-1
       @low_water_mark = @high_water_mark if @low_water_mark==-1
+
+      assert { @high_water_mark > 0 }
+      assert { @low_water_mark >= 0 }
+      assert { @low_water_mark <= @high_water_mark }
+
       if @full
         if size <= @low_water_mark
           @full = false

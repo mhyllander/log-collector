@@ -19,6 +19,7 @@ require 'lc/logevent'
 require 'lc/limited_queue'
 require 'lc/collector'
 require 'lc/spooler'
+require 'lc/state'
 
 $logger = Logger.new(STDERR)
 $logger.level = ($DEBUG and Logger::DEBUG or Logger::WARN)
@@ -51,16 +52,22 @@ $config = LogCollector::Config.new($options[:configfile],$options[:statefile])
 
 def main(args)
   spool_queue = EM::LimitedQueue.new
-  spool_queue.low_water_mark = $config.queue_low
   spool_queue.high_water_mark = $config.queue_high
-
+  spool_queue.low_water_mark = $config.queue_low
+  state_queue = EM::Queue.new
   collectors = []
   spooler = nil
+  state = nil
   EM.run do
     $config.files.each do |path,fc|
-      collectors << LogCollector::Collector.new(path,fc,spool_queue)
+      if File.file? path
+        collectors << LogCollector::Collector.new(path,fc,spool_queue)
+      else
+        LogCollector::Watcher.new(path).callback {collectors << LogCollector::Collector.new(path,fc,spool_queue)}
+      end
     end
-    spooler = LogCollector::Spooler.new($config.hostname,$config.servers,spool_queue)
+    spooler = LogCollector::Spooler.new($config.hostname,$config.servers,spool_queue,state_queue)
+    state = LogCollector::State.new($config.state,$options[:statefile],state_queue)
   end
 end # def main
 

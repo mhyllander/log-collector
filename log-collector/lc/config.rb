@@ -6,8 +6,10 @@ module LogCollector
     Default_QueueHighWaterMark = 2000
     Default_MultilineWait = '2s'
 
-    def initialize(configfile,statefile)
-      json_config = File.read(configfile)
+    attr_reader :state
+
+    def initialize(config_file,state_file)
+      json_config = File.read(config_file)
       @config = JSON.parse(json_config)
 
       @config['hostname'] ||= Socket.gethostname
@@ -20,8 +22,9 @@ module LogCollector
         fc['multiline_wait'] = duration_for(fc['multiline_wait'] || Default_MultilineWait)
       end
 
-      if File.file? statefile
-        json_state = File.read(statefile)
+      @state = {}
+      if File.file? state_file
+        json_state = File.read(state_file)
         @state = JSON.parse(json_state)
 
         @config['files'].each do |path,fc|
@@ -55,11 +58,14 @@ module LogCollector
           else # !file exists
             # file doesn't exist (yet), so start at beginning
             fc['startpos'] = 0
+            # delete any saved state for the file
+            @state.delete path
+            $logger.debug "#{path} nonexistant, deleting state"
           end
 
         end # file loop
 
-      end # statefile exists
+      end # state_file exists
 
     end
 
