@@ -96,16 +96,16 @@ module LogCollector
     private
     def duration_for(spec)
       ret = nil
-      if((m = %r/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.match(spec.to_s)))
-        _, h, m, s, _ = m.to_a
+      if((m0 = %r/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.match(spec.to_s)))
+        _, h, m, s, _ = m0.to_a
         h, m, s = Float(h), Float(m), Float(s)
         ret = (h * 60 * 60) + (m * 60) + (s)
       else
         pat = %r/(\d+(?:\.\d+)?)\s*([sSmMhHdDwWyY][^\d]*)?/
         begin
-          "#{ spec }".scan(pat) do |m|
-            n = Float m[0]
-            unit = m[1]
+          "#{ spec }".scan(pat) do |m1|
+            n = Float m1[0]
+            unit = m1[1]
             if unit
               factor =
                 case unit

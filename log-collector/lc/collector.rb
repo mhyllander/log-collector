@@ -12,7 +12,6 @@ module LogCollector
       @delimiter_length = @delimiter.unpack('C*').length
 
       @buffer = BufferedTokenizer.new(@delimiter)
-      @internal_queue = []
 
       # if doing multiline processing
       if fileconfig['multiline_re']
@@ -36,34 +35,18 @@ module LogCollector
         pos += line.unpack('C*').length + @delimiter_length
         ev = LogEvent.new(path,line,fstat,pos,@fileconfig['fields'])
         $logger.debug "#{path}: enqueue ev=#{ev}"
+        @line_queue.push ev
+
         if @line_queue.full?
-          # save temporarily to internal queue
-          @internal_queue << ev
-          # suspend reading from file and schedule monitoring of the line queue
+          # suspend reading from file
           unless self.suspended?
             $logger.debug "#{path}: suspend filetail"
             self.suspend
-            schedule_line_queue_monitor
+            @line_queue.callback do
+              $logger.debug "#{path}: resume filetail"
+              self.resume
+            end
           end
-        else
-          @line_queue.push ev
-        end
-      end
-    end
-
-    def schedule_line_queue_monitor
-      EM.next_tick do
-        if @line_queue.full?
-          $logger.debug "#{path}: line_queue full"
-          # reschedule until line_queue is not full
-          schedule_line_queue_monitor
-        else
-          $logger.debug "#{path}: line_queue not full"
-          # flush the internal queue and resume reading from file
-          @internal_queue.each {|ev| @line_queue.push ev}
-          @internal_queue.clear
-          $logger.debug "#{path}: resume filetail"
-          self.resume
         end
       end
     end

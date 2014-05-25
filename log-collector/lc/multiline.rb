@@ -9,15 +9,13 @@ module LogCollector
       @multiline_re = fileconfig['multiline_re']
       @multiline_wait = fileconfig['multiline_wait']
 
-      @internal_queue = []
       @held_ev = nil
       @flush_timer = nil
-      schedule_process_next_line
+      process_lines
     end
 
-    def schedule_process_next_line
-      @in_queue.pop do |ev|
-
+    def process_lines
+      line_processor = proc do |ev|
         if @multiline_re
 
           if ev.line =~ /#{@multiline_re}/
@@ -39,17 +37,23 @@ module LogCollector
         else # not @multiline_re
           $logger.debug "multiline(disabled): ev=#{ev}"
           @out_queue.push ev
-        end
+        end # not @multiline_re
 
-         if @out_queue.full?
-          # cancel flush and wait for out_queue to not be full anymore
+        if @out_queue.full?
+          # cancel flush and wait for out_queue to be pushable
           cancel_flush_held_ev
-          schedule_out_queue_monitor
+          @out_queue.callback do
+            $logger.debug "multiline(out_queue not full)"
+            # resume line_processing
+            @in_queue.pop(line_processor)
+          end
         else
-          # process the next line
-          schedule_process_next_line
+          # process next line
+          @in_queue.pop(line_processor)
         end
-      end
+      end # proc
+
+      @in_queue.pop(line_processor)
     end
 
     def schedule_flush_held_ev
@@ -65,23 +69,6 @@ module LogCollector
     def cancel_flush_held_ev
       @flush_timer.cancel if @flush_timer
       @flush_timer = nil
-    end
-
-    def schedule_out_queue_monitor
-      EM.next_tick do
-        if @out_queue.full?
-          $logger.debug "multiline(out_queue full)"
-          # reschedule until out_queue is not full
-          schedule_out_queue_monitor
-        else
-          $logger.debug "multiline(out_queue not full)"
-          # flush the internal queue and resume processing
-          @internal_queue.each {|ev| @out_queue.push ev}
-          @internal_queue.clear
-          schedule_process_next_line
-          schedule_flush_held_ev
-        end
-      end
     end
 
   end # class Multiline

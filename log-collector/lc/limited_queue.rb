@@ -4,6 +4,8 @@ module EventMachine
     attr_accessor :low_water_mark
     attr_accessor :high_water_mark
 
+    include EM::Deferrable
+
     def initialize
       super
       @low_water_mark = @high_water_mark = -1
@@ -51,10 +53,15 @@ module EventMachine
     # check if full state has changed
     private
     def adjust_full_state
+      return if @high_water_mark==-1
+      @low_water_mark = @high_water_mark if @low_water_mark==-1
       if @full
-        @full = false if size <= @low_water_mark
+        if size <= @low_water_mark
+          @full = false
+          self.succeed # notify callbacks that the queue can now be pushed to
+        end
       else
-        @full = true if size >= @high_water_mark
+        @full = true if size > @high_water_mark
       end
     end
   end # LimitedQueue
