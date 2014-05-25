@@ -1,0 +1,32 @@
+{
+  "network" : {
+    "servers" : [
+                 "10.32.0.244:9100"
+                ],
+    "ssl" : {                   # not used yet
+      "ssl certificate" : "/etc/ssl/certs/logstash.pub",
+      "ssl key" : "/etc/ssl/private/logstash.key",
+      "ssl ca" : "/etc/ssl/certs/logstash.pub"
+    }
+   },
+   "hostname" : "myhostname",   # optional
+   "queue_low" : 1500,          # optional
+   "queue_high" : 2000,         # optional
+   "files" : {
+    "/opt/api-service/logs/hive-service.log" : {
+      "fields" : {              # optional
+        "type" : "hive-services"
+      },
+      "dead time" : "60m",      # optional, default 24h
+      "startpos" : 0,           # optional, default EOF
+      "multiline_re" : "^\\s+", # optional
+      "multiline_wait": "10s"   # optional, default 2s
+    },
+    "/var/log/haproxy.log" : {
+      "fields" : {              # optional
+        "type" : "hive-services-haproxy"
+      },
+      "delimiter" : "\r\n"        # optional, default \n
+    }
+  }
+}
