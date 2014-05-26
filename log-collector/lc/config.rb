@@ -1,6 +1,7 @@
 module LogCollector
 
   class Config
+    Default_StateFile = 'log-collector.state'
     Default_FlushInterval = '1s'
     Default_FlushSize = 1000
 
@@ -11,11 +12,12 @@ module LogCollector
 
     attr_reader :state
 
-    def initialize(config_file,state_file)
+    def initialize(config_file)
       json_config = File.read(config_file)
       @config = JSON.parse(json_config)
 
       @config['hostname'] ||= Socket.gethostname
+      @config['state_file'] ||= Default_StateFile
       @config['queue_low'] ||= Default_QueueLowWaterMark
       @config['queue_high'] ||= Default_QueueHighWaterMark
       @config['flush_interval'] = duration_for(@config['flush_interval'] || Default_FlushInterval)
@@ -88,6 +90,10 @@ module LogCollector
 
     def files
       @config['files']
+    end
+
+    def state_file
+      @config['state_file']
     end
 
     def flush_interval

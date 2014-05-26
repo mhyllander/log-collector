@@ -26,8 +26,7 @@ $logger.level = ($DEBUG and Logger::DEBUG or Logger::WARN)
 $logger.debug("Debugging log-collector...")
 
 options = {
-  configfile: 'log-collector.conf',
-  statefile: 'log-collector.state'
+  configfile: 'log-collector.conf'
 }
 
 parser = OptionParser.new do |opts|
@@ -35,9 +34,6 @@ parser = OptionParser.new do |opts|
 
   opts.on("-f", "--config CONFIGFILE", "The configuration file to use.") do |v|
     options[:configfile] = v
-  end
-  opts.on("-f", "--state STATEFILE", "The state file to use.") do |v|
-    options[:statefile] = v
   end
 
   opts.on_tail("-h", "--help", "Show this message") do
@@ -48,7 +44,7 @@ parser = OptionParser.new do |opts|
 end
 parser.parse!
 
-config = LogCollector::Config.new(options[:configfile],options[:statefile])
+config = LogCollector::Config.new(options[:configfile])
 
 def main(args)
   spool_queue = EM::LimitedQueue.new
@@ -67,7 +63,7 @@ def main(args)
       end
     end
     spooler = LogCollector::Spooler.new(config.hostname,config.servers,config.flush_interval,config.flush_size,spool_queue,state_queue)
-    state = LogCollector::State.new(config.state,options[:statefile],state_queue)
+    state = LogCollector::State.new(config.state,config.state_file,state_queue)
   end
 end # def main
 

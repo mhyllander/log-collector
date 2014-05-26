@@ -3,32 +3,33 @@
     "servers" : [
                  "10.32.0.244:9100"
                 ],
-    "ssl" : {                   # not used yet
+    "ssl" : {                                 # not used yet
       "ssl certificate" : "/etc/ssl/certs/logstash.pub",
       "ssl key" : "/etc/ssl/private/logstash.key",
       "ssl ca" : "/etc/ssl/certs/logstash.pub"
     }
    },
-   "hostname" : "myhostname",   # optional
-   "flush_interval" : "1s",     # optional
-   "flush_size" : 1000,         # optional
-   "queue_low" : 1500,          # optional
-   "queue_high" : 2000,         # optional
+   "hostname" : "myhostname",                 # optional, default is host's name
+   "state_file" : "/tmp/log-collector.state", # optional, defualt log-collector.state
+   "flush_interval" : "5s",                   # optional, default 1s
+   "flush_size" : 2000,                       # optional, default 1000
+   "queue_high" : 1000,                       # optional, default 2000
+   "queue_low" : 500,                         # optional, default 1500
    "files" : {
     "/opt/api-service/logs/hive-service.log" : {
-      "fields" : {              # optional
+      "fields" : {                            # optional
         "type" : "hive-services"
       },
-      "dead time" : "60m",      # optional, default 24h
-      "startpos" : 0,           # optional, default EOF
-      "multiline_re" : "^\\s+", # optional
-      "multiline_wait": "10s"   # optional, default 2s
+      "dead time" : "60m",                    # optional, default 24h
+      "startpos" : 0,                         # optional, default EOF
+      "multiline_re" : "^\\s+",               # optional
+      "multiline_wait": "10s"                 # optional, default 2s
     },
     "/var/log/haproxy.log" : {
-      "fields" : {              # optional
+      "fields" : {                            # optional
         "type" : "hive-services-haproxy"
       },
-      "delimiter" : "\r\n"        # optional, default \n
+      "delimiter" : "\r\n"                    # optional, default \n
     }
   }
 }
