@@ -1,6 +1,9 @@
 module LogCollector
 
   class Config
+    Default_FlushInterval = '1s'
+    Default_FlushSize = 1000
+
     Default_DeadTime = '24h'
     Default_QueueLowWaterMark = 1500
     Default_QueueHighWaterMark = 2000
@@ -15,6 +18,8 @@ module LogCollector
       @config['hostname'] ||= Socket.gethostname
       @config['queue_low'] ||= Default_QueueLowWaterMark
       @config['queue_high'] ||= Default_QueueHighWaterMark
+      @config['flush_interval'] = duration_for(@config['flush_interval'] || Default_FlushInterval)
+      @config['flush_size'] ||= Default_FlushSize
 
       @config['files'].each do |path,fc|
         fc['startpos'] ||= -1 # default is to start at end of file
@@ -83,6 +88,14 @@ module LogCollector
 
     def files
       @config['files']
+    end
+
+    def flush_interval
+      @config['flush_interval']
+    end
+
+    def flush_size
+      @config['flush_size']
     end
 
     def queue_low

@@ -10,6 +10,8 @@
     }
    },
    "hostname" : "myhostname",   # optional
+   "flush_interval" : "1s",     # optional
+   "flush_size" : 1000,         # optional
    "queue_low" : 1500,          # optional
    "queue_high" : 2000,         # optional
    "files" : {

@@ -1,16 +1,13 @@
 module LogCollector
 
   class Spooler
-    Default_FlushTime = 1
-    Default_FlushSize = 1000
-
-    def initialize(hostname,servers,spool_queue,state_queue)
+    def initialize(hostname,servers,flush_interval,flush_size,spool_queue,state_queue)
       @hostname = hostname
       @spool_queue = spool_queue
       @state_queue = state_queue
 
-      @flush_time = Default_FlushTime
-      @flush_size = Default_FlushSize
+      @flush_interval = flush_interval
+      @flush_size = flush_size
       @flush_timer = nil
       @buffer = []
       @sendbuf = nil
@@ -47,7 +44,7 @@ module LogCollector
     def schedule_flush_buffer
       @flush_timer.cancel if @flush_timer
       $logger.debug "schedule flush timer"
-      @flush_timer = EM::Timer.new(@flush_time) do
+      @flush_timer = EM::Timer.new(@flush_interval) do
         $logger.debug "flush timer"
         send_events
       end
