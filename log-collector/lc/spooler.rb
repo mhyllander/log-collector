@@ -1,30 +1,31 @@
 module LogCollector
 
   class Spooler
-    def initialize(hostname,servers,flush_interval,flush_size,spool_queue,state_queue)
-      @hostname = hostname
+    def initialize(config,spool_queue,state_queue)
+      @hostname = config.hostname
+      @servers = config.servers
       @spool_queue = spool_queue
       @state_queue = state_queue
 
-      @flush_interval = flush_interval
-      @flush_size = flush_size
+      @flush_interval = config.flush_interval
+      @flush_size = config.flush_size
       @flush_timer = nil
       @buffer = []
       @sendbuf = nil
 
-      # If using em-zeromq: 
-      #@zmq_context = EM::ZeroMQ::Context.new(1)
+      @delay = config.send_error_delay
+      @retries = config.send_retries
+      @timeout = config.recv_timeout
 
-      # If using ffi-rzmq directly:
       @zmq_context = ZMQ::Context.new(1)
-
-      @spool_socket = @zmq_context.socket(ZMQ::REQ)
-      servers.each do |addr|
-        $logger.debug "bind to #{addr}"
-        @spool_socket.connect addr
-      end
-      
+      @poller = ZMQ::Poller.new
+      @clientid = "%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+      client_sock
       schedule_process_event
+
+      at_exit do
+        @socket.close
+      end
     end
 
     def schedule_process_event
@@ -75,35 +76,50 @@ module LogCollector
         @buffer = []
 
         sendop = proc do
-          $logger.debug("send #{@sendbuf.length} events to logstash")
-          
           # collect the accumulated final state
           final_events = {}
           @sendbuf.each do |ev|
             final_events["#{ev.path}//#{ev.dev}//#{ev.inode}"] = ev
           end
 
-          msg = formatted_msg.to_json
-          compress = Zlib::Deflate.deflate(msg)
+          msg = formatted_msg
+          serial = Time.now.to_f.to_s
+          msg['serial'] = serial
+          cmsg = Zlib::Deflate.deflate(msg.to_json)
+          response = nil
 
-          # If using em-zeromq: 
-          #@spool_socket.send_msg(msg)
-          #@spool_socket.on(:message) do |part|
-          #  puts part.copy_out_string
-          #  part.close
-          #end
-
-          # If using ffi-rzmq directly:
-          @spool_socket.send_string(compress)
-          @spool_socket.recv_string(rcvmsg = '')
+          $logger.debug "send #{msg['n']} events to worker, serial=#{serial}"
+          puts "send #{msg['n']} events to worker, serial=#{serial}"
+          
+          loop do
+            begin
+              rcvmsg = send cmsg
+              if rcvmsg.length==1
+                response = JSON.parse(rcvmsg[0])
+                if response.length==3 && response[0]=='ACK'
+                  break if response[1]==serial
+                  $logger.debug "got ack for wrong serial: expecting #{serial} received #{response[1]}"
+                else
+                  $logger.debug "got unexpected message: #{rcvmsg}"
+                end
+              else
+                $logger.debug "got unexpected message: #{rcvmsg}"
+              end
+                
+            rescue Exception => e
+              $logger.debug "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
+              sleep @delay
+            end
+          end
 
           # save state
           @state_queue.push final_events.values
           
-          rcvmsg
+          response
         end
         sendcb = proc do |response|
-          $logger.debug "got response: #{response}"
+          $logger.debug "worker response: #{response}"
+          puts "worker response: #{response}"
           @sendbuf = nil
         end
 
@@ -117,7 +133,7 @@ module LogCollector
 
     def formatted_msg
       {
-        'hostname' => @hostname,
+        'host' => @hostname,
         'n' => @sendbuf.length,
         'events' => formatted_events
       }
@@ -126,13 +142,44 @@ module LogCollector
     def formatted_events
       @sendbuf.collect do |ev|
         {
-          'path' => ev.path,
+          'ts' => ev.timestamp.utc.strftime('%FT%T.%LZ'),
+          'file' => ev.path,
           'msg' => ev.line,
-          'fields' => ev.fields
+          'flds' => ev.fields
         }
       end
     end
 
-  end
+    def client_sock
+      $logger.debug "create spool socket"
+      @socket = @zmq_context.socket(ZMQ::REQ)
+      @socket.setsockopt(ZMQ::LINGER, 0)
+      @socket.setsockopt(ZMQ::IDENTITY, @clientid)
+      @poller.register_readable @socket
+      @servers.each do |addr|
+        $logger.debug "bind to #{addr}"
+        @socket.connect addr
+      end
+    end
 
-end
+    def send(message)
+      @retries.times do |tries|
+        raise("send: send failed") unless @socket.send_string(message)
+        while @poller.poll(@timeout*1000) > 0
+          @poller.readables.each do |readable|
+            if readable==@socket
+              @socket.recv_strings msgs=[]
+              return msgs
+            end
+          end
+        end
+        @poller.deregister_readable @socket
+        @socket.close
+        client_sock
+      end
+      raise 'send: server down'
+    end
+
+  end # class Spooler
+
+end # module LogCollector

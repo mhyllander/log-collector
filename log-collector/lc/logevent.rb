@@ -6,6 +6,7 @@ module LogCollector
     attr_reader :stat
     attr_reader :pos
     attr_reader :fields
+    attr_reader :timestamp
 
     def initialize(path,line,stat,pos,fields)
       @path = path
@@ -13,6 +14,9 @@ module LogCollector
       @stat = stat
       @pos = pos
       @fields = fields
+      
+      now = Time.now
+      @timestamp = now #> stat.mtime ? stat.mtime : now
     end
 
     def append(ev)

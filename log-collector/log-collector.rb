@@ -6,7 +6,6 @@ $LOAD_PATH.unshift(libdir) unless $LOAD_PATH.include?(libdir)
 require 'rubygems'
 require 'eventmachine'
 require 'eventmachine-tail'
-#require 'em-zeromq'
 require 'ffi-rzmq'
 require 'optparse'
 require 'json'
@@ -46,25 +45,21 @@ parser.parse!
 
 config = LogCollector::Config.new(options[:configfile])
 
-def main(args)
-  spool_queue = EM::LimitedQueue.new
-  spool_queue.high_water_mark = config.queue_high
-  spool_queue.low_water_mark = config.queue_low
-  state_queue = EM::Queue.new
-  collectors = []
-  spooler = nil
-  state = nil
-  EM.run do
-    config.files.each do |path,fc|
-      if File.file? path
-        collectors << LogCollector::Collector.new(path,fc,spool_queue)
-      else
-        LogCollector::Watcher.new(path).callback {collectors << LogCollector::Collector.new(path,fc,spool_queue)}
-      end
+spool_queue = EM::LimitedQueue.new
+spool_queue.high_water_mark = config.queue_high
+spool_queue.low_water_mark = config.queue_low
+state_queue = EM::Queue.new
+collectors = []
+spooler = nil
+state = nil
+EM.run do
+  config.files.each do |path,fc|
+    if File.file? path
+      collectors << LogCollector::Collector.new(path,fc,spool_queue)
+    else
+      LogCollector::Watcher.new(path).callback {collectors << LogCollector::Collector.new(path,fc,spool_queue)}
     end
-    spooler = LogCollector::Spooler.new(config.hostname,config.servers,config.flush_interval,config.flush_size,spool_queue,state_queue)
-    state = LogCollector::State.new(config.state,config.state_file,state_queue)
   end
-end # def main
-
-exit(main(ARGV))
+  spooler = LogCollector::Spooler.new(config,spool_queue,state_queue)
+  state = LogCollector::State.new(config,state_queue)
+end

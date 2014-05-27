@@ -15,6 +15,9 @@
    "flush_size" : 2000,                       # optional, default 1000
    "queue_high" : 1000,                       # optional, default 2000
    "queue_low" : 500,                         # optional, default 1500
+   "send_error_delay" : "5s",                 # optional, default 1s
+   "send_retries", : 5,			      # optional, default 3
+   "recv_timeout" : "5s",		      # optional, default 10s
    "files" : {
     "/opt/api-service/logs/hive-service.log" : {
       "fields" : {                            # optional

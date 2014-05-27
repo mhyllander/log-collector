@@ -2,9 +2,9 @@ module LogCollector
 
   class State
 
-    def initialize(initial_state,state_file,state_queue)
-      @state = initial_state
-      @state_file = state_file
+    def initialize(config,state_queue)
+      @state = config.state
+      @state_file = config.state_file
       @state_queue = state_queue
 
       process_state

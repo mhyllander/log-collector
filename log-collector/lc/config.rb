@@ -10,6 +10,10 @@ module LogCollector
     Default_QueueHighWaterMark = 2000
     Default_MultilineWait = '2s'
 
+    Default_SendErrorDelay = '1s'
+    Default_SendRetries = 3
+    Default_RecvTimeout = '10s'
+
     attr_reader :state
 
     def initialize(config_file)
@@ -22,6 +26,10 @@ module LogCollector
       @config['queue_high'] ||= Default_QueueHighWaterMark
       @config['flush_interval'] = duration_for(@config['flush_interval'] || Default_FlushInterval)
       @config['flush_size'] ||= Default_FlushSize
+
+      @config['send_error_delay'] = duration_for(@config['send_error_delay'] || Default_SendErrorDelay)
+      @config['send_retries'] ||= Default_SendRetries
+      @config['recv_timeout'] = duration_for(@config['recv_timeout'] || Default_RecvTimeout)
 
       @config['files'].each do |path,fc|
         fc['startpos'] ||= -1 # default is to start at end of file
@@ -104,6 +112,18 @@ module LogCollector
       @config['flush_size']
     end
 
+    def send_error_delay
+      @config['send_error_delay']
+    end
+
+    def send_retries
+      @config['send_retries']
+    end
+
+    def recv_timeout
+      @config['recv_timeout']
+    end
+
     def queue_low
       @config['queue_low']
     end
@@ -120,6 +140,7 @@ module LogCollector
 
     private
     def duration_for(spec)
+      return spec if spec.is_a?(Integer) || spec.is_a?(Float)
       ret = nil
       if((m0 = %r/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.match(spec.to_s)))
         _, h, m, s, _ = m0.to_a
