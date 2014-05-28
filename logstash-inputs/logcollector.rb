@@ -32,12 +32,12 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   #
   # If the predefined topology flows don't work for you,
   # you can change the 'mode' setting
-  config :topology, :validate => ["queue"], :default => "queue", :required => false
+  config :topology, :validate => ["queue"], :default => "queue"
 
   # mode
   # server mode binds/listens
   # client mode connects
-  config :mode, :validate => ["client"], :default => "client", :required => false
+  config :mode, :validate => ["client"], :default => "client"
 
   # sender
   # overrides the sender to 
@@ -58,6 +58,12 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   # example: sockopt => ["ZMQ::HWM", 50, "ZMQ::IDENTITY", "my_named_queue"]
   config :sockopt, :validate => :hash
 
+  # Ping interval in seconds
+  config :ping_interval, :validate => :number, :default => 1
+
+  # Ping liveness (3..5 is reasonable)
+  config :ping_liveness, :validate => :number, :default => 3
+
   # SSL certificate to use.
   #config :ssl_certificate, :validate => :path, :required => false
 
@@ -71,13 +77,11 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   # see https://github.com/chuckremes/ffi-rzmq/blob/master/lib/ffi-rzmq/socket.rb#L93-117
   STRING_OPTS = %w{IDENTITY SUBSCRIBE UNSUBSCRIBE}
 
-  PING_LIVENESS = 3 # 3..5 is reasonable
-  PING_INTERVAL = 1 # Seconds
-
   PPP_READY = "\x01" # Signals worker is ready
   PPP_PING  = "\x02" # Signals queue ping
   PPP_PONG  = "\x03" # Signals worker pong
 
+  # Back-off for connection errors
   INTERVAL_INIT = 1
   INTERVAL_MAX  = 32
 
@@ -111,8 +115,9 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   end # def server?
 
   def run(output_queue)
-    run_worker do |event|
+    run_worker do |data|
       begin
+        event = LogStash::Event.new(data)
         decorate(event)
         output_queue << event
       rescue LogStash::ShutdownSignal
@@ -153,12 +158,12 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
     @zsocket = worker_socket context, poller
 
     begin
-      liveness = PING_LIVENESS
+      liveness = @ping_liveness
       interval = INTERVAL_INIT
 
       loop do
         
-        while poller.poll(PING_INTERVAL*1000) > 0
+        while poller.poll(@ping_interval*1000) > 0
           poller.readables.each do |readable|
             if readable==@zsocket
               
@@ -183,27 +188,26 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 @logger.debug "[log-collector] got msg client=#{clientid} len=#{msgs.length} msgs=#{msgs[0..-2]}"
 
                 # handle request by feeding the log events to logstash
-                json = Zlib::Inflate.inflate(request)
-                data = JSON.parse(json)
-                host = data['host'].force_encoding(Encoding::UTF_8)
-                data['events'].each do |ev|
-                  logev = {
+                batch = JSON.parse(Zlib::Inflate.inflate(request))
+                host = batch['host'].force_encoding(Encoding::UTF_8)
+                batch['events'].each do |ev|
+                  data = {
                     '@timestamp' => ev['ts'],
                     'host' => host,
                     'file' => ev['file'].force_encoding(Encoding::UTF_8),
                     'message' => ev['msg'].force_encoding(Encoding::UTF_8)
                   }
-                  ev['flds'].each {|f,v| logev[f] = v.force_encoding(Encoding::UTF_8)}
-                  block.call(logev)
+                  ev['flds'].each {|f,v| data[f] = v.force_encoding(Encoding::UTF_8)}
+                  block.call(data)
                 end
 
                 # send an ACK back to client when finished
-                @zsocket.send_strings ['', clientid, '', ['ACK',data['serial'],data['n']].to_json]
+                @zsocket.send_strings ['', clientid, '', ['ACK',batch['serial'],batch['n']].to_json]
               else
                 @logger.error "[log-collector] Invalid message: #{msgs}"
               end
 
-              liveness = PING_LIVENESS
+              liveness = @ping_liveness
               interval = INTERVAL_INIT
 
             end # if readable==@zsocket
@@ -224,7 +228,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
           interval *= 2 if interval < INTERVAL_MAX
 
           @zsocket = worker_socket context, poller
-          liveness = PING_LIVENESS
+          liveness = @ping_liveness
         end
 
       end # loop
@@ -245,7 +249,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
     else
       error_check(socket.connect(address), "connecting to #{address}")
     end
-    @logger.info("[log-collector] #{server? ? 'bound' : 'connected'}", :address => address)
+    @logger.info("[log-collector] #{server? ? 'bound' : 'connecting'}", :address => address)
   end
 
   def error_check(rc, doing)
