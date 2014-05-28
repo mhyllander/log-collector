@@ -37,7 +37,7 @@ def run
   liveness = $options[:ping_liveness]
   interval = INTERVAL_INIT
 
-  workerid = "%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+  workerid = "W:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
   worker = worker_socket context, workerid, poller
 
   loop do

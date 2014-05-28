@@ -94,7 +94,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
     end # case socket_type
 
     @sockopt ||= {}
-    @sockopt['ZMQ::IDENTITY'] ||= "%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+    @sockopt['ZMQ::IDENTITY'] ||= "L:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
 
   end # def register
 
@@ -143,7 +143,6 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
       setup(worker, addr)
     end
 
-    #worker.setsockopt ZMQ::IDENTITY, identity
     poller.register_readable worker
     worker.send_string PPP_READY
     worker

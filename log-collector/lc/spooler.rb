@@ -19,7 +19,7 @@ module LogCollector
 
       @zmq_context = ZMQ::Context.new(1)
       @poller = ZMQ::Poller.new
-      @clientid = "%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+      @clientid = "C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
       client_sock
       schedule_process_event
 
@@ -89,7 +89,6 @@ module LogCollector
           response = nil
 
           $logger.debug "send #{msg['n']} events to worker, serial=#{serial}"
-          puts "send #{msg['n']} events to worker, serial=#{serial}"
           
           loop do
             begin
@@ -119,7 +118,6 @@ module LogCollector
         end
         sendcb = proc do |response|
           $logger.debug "worker response: #{response}"
-          puts "worker response: #{response}"
           @sendbuf = nil
         end
 

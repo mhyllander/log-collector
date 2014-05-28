@@ -16,7 +16,7 @@
    "queue_high" : 1000,                       # optional, default 2000
    "queue_low" : 500,                         # optional, default 1500
    "send_error_delay" : "5s",                 # optional, default 1s
-   "send_retries", : 5,			      # optional, default 3
+   "send_retries", : 5,			      # optional, default 5
    "recv_timeout" : "5s",		      # optional, default 10s
    "files" : {
     "/opt/api-service/logs/hive-service.log" : {
@@ -25,7 +25,7 @@
       },
       "startpos" : 0,                         # optional, default EOF
       "multiline_re" : "^\\s+",               # optional
-      "multiline_wait": "10s"                 # optional, default 2s
+      "multiline_wait" : "10s"                # optional, default 2s
     },
     "/var/log/haproxy.log" : {
       "fields" : {                            # optional
