@@ -5,7 +5,6 @@ module LogCollector
     Default_FlushInterval = '1s'
     Default_FlushSize = 1000
 
-    Default_DeadTime = '24h'
     Default_QueueLowWaterMark = 1500
     Default_QueueHighWaterMark = 2000
     Default_MultilineWait = '2s'
@@ -33,7 +32,6 @@ module LogCollector
 
       @config['files'].each do |path,fc|
         fc['startpos'] ||= -1 # default is to start at end of file
-        fc['dead time'] = duration_for(fc['dead time'] || Default_DeadTime)
         fc['multiline_wait'] = duration_for(fc['multiline_wait'] || Default_MultilineWait)
       end
 
