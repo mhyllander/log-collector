@@ -4,13 +4,9 @@ module LogCollector
     Default_Delimiter = "\n"
 
     def initialize(path,fileconfig,spool_queue)
-      super(path,fileconfig['startpos'])
       @fileconfig = fileconfig
-      @linepos = fileconfig['startpos']
-
       @delimiter = @fileconfig['delimiter'] || Default_Delimiter
       @delimiter_length = @delimiter.bytesize
-
       @buffer = BufferedTokenizer.new(@delimiter)
 
       # if doing multiline processing
@@ -25,17 +21,17 @@ module LogCollector
         # send lines directly to spool_queue
         @line_queue = spool_queue
       end
+
+      # intitialize the filetail, this will also set the current position
+      super(path,fileconfig['startpos'])
+
+      # set the line position to where we start reading
+      @linepos = position
     end
 
     def receive_data(data)
       @buffer.extract(data).each do |line|
-        # Save the position after the current line in the event. When the event has been acked by logstash,
-        # this is the position to save in the state file, so we know where to resume from if a restart occurs.
-        @linepos += line.bytesize + @delimiter_length
-        ev = LogEvent.new(path,line,@file.stat,@linepos,@fileconfig['fields'])
-        $logger.debug "#{path}: enqueue ev=#{ev}"
-        @line_queue.push ev
-
+        enqueue_line line
         if @line_queue.full?
           # suspend reading from file
           unless self.suspended?
@@ -48,6 +44,25 @@ module LogCollector
           end
         end
       end
+    end
+    
+    # this method is called whenever a file is opened for reading
+    def bof
+      # take care of any unfinished line in the buffer before starting on the new file
+      enqueue_line @buffer.flush unless @buffer.empty?
+      # reset line position to beginning of file
+      @linepos = 0
+    end
+
+    def enqueue_line(line)
+      # Save the position after the current line in the event. When the
+      # event has been acked by logstash, this is the position to save in
+      # the state file, so we know where to resume from if a restart
+      # occurs.
+      @linepos += line.bytesize + @delimiter_length
+      ev = LogEvent.new(path,line,@file.stat,@linepos,@fileconfig['fields'])
+      $logger.debug "#{path}: enqueue ev=#{ev}"
+      @line_queue.push ev
     end
 
   end # class Collector
