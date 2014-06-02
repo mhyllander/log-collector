@@ -24,9 +24,17 @@ module LogCollector
 
       # intitialize the filetail, this will also set the current position
       super(path,fileconfig['startpos'])
+    end
 
-      # set the line position to where we start reading
-      @linepos = position
+    # This method is called whenever the file position is altered, e.g.
+    # when opening the file the first time, and when the file is rotated or
+    # truncated.
+    def newpos
+      # take care of any unfinished line in the buffer before starting at the new position
+      enqueue_line @buffer.flush unless @buffer.empty?
+      # set the current line position
+      @linepos = self.position
+      $logger.debug "#{path}: new pos=#{@linepos}"
     end
 
     def receive_data(data)
@@ -46,14 +54,6 @@ module LogCollector
       end
     end
     
-    # this method is called whenever a file is opened for reading
-    def bof
-      # take care of any unfinished line in the buffer before starting on the new file
-      enqueue_line @buffer.flush unless @buffer.empty?
-      # reset line position to beginning of file
-      @linepos = 0
-    end
-
     def enqueue_line(line)
       # Save the position after the current line in the event. When the
       # event has been acked by logstash, this is the position to save in
