@@ -50,26 +50,24 @@ def run
           # - 3-part envelope + content -> request
           # - 1-part PING -> ping
           worker.recv_strings msgs = []
-          if msgs.length==2
-            clientid = msgs[0]
-            $logger.debug "got msg client=#{clientid} len=#{msgs.length}"
-            if msgs[1]==PPP_PING
+          if msgs.length==1
+            $logger.debug "got msg len=#{msgs.length} msgs=#{msgs}"
+            if msgs[0]==PPP_PING
               $logger.debug "recv queue ping, send pong"
               worker.send_string PPP_PONG
             end
-          elsif msgs.length>=4
-            # msgs[0]: empty delimiter
-            # msgs[1]: client id
-            # msgs[2]: empty delimiter
-            # msgs[3]: request
-            clientid = msgs[1]
-            request = msgs[3]
+          elsif msgs.length>=3
+            # msgs[0]: client id
+            # msgs[1]: empty delimiter
+            # msgs[2]: request
+            clientid = msgs[0]
+            request = msgs[2]
             $logger.debug "got msg client=#{clientid} len=#{msgs.length} msgs=#{msgs[0..-2]}"
             sleep 4*rand() # simulate doing dome work
             json = Zlib::Inflate.inflate(request)
             data = JSON.parse(json)
-            $logger.debug "send ACK serial=#{data['serial']}"
-            worker.send_strings ['', clientid, '', ['ACK',data['serial'],data['n']].to_json]
+            $logger.debug "send ACK serial=#{data['serial']} n=#{data['n']}"
+            worker.send_strings [clientid, '', ['ACK',data['serial'],data['n']].to_json]
           else
             $logger.error "Invalid message: #{msgs}"
           end
@@ -105,7 +103,7 @@ def run
 end
 
 $options = {
-  queue: 'tcp://127.0.0.1:5559',
+  queue: 'tcp://127.0.0.1:5560',
   ping_interval: 1,
   ping_liveness: 3
 }

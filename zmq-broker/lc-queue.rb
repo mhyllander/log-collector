@@ -21,6 +21,10 @@ class Worker
 
   def initialize(identity)
     @identity = identity
+    renew_expiry
+  end
+
+  def renew_expiry
     @ping_at = Time.now + $options[:ping_interval]
     @expiry = Time.now + $options[:ping_interval] * $options[:ping_liveness]
   end
@@ -33,9 +37,14 @@ class WorkerQueue
     @queue = OrderedHash.new
   end
 
-  def ready(worker)
-    @queue.delete(worker.identity)
-    @queue[worker.identity] = worker
+  def ready(workerid)
+    if worker = @queue[workerid]
+      worker.renew_expiry
+      $logger.debug "renew expiry worker=#{workerid}"
+    else
+      @queue[workerid] = Worker.new(workerid)
+      $logger.debug "add to queue worker=#{workerid}"
+    end
   end
 
   # look for and kill expired workers
@@ -51,7 +60,7 @@ class WorkerQueue
   end
 
   def next
-    identity, _ = @queue.pop
+    identity, _ = @queue.shift
     identity
   end
 
@@ -78,7 +87,6 @@ def run
   poll_both.register_readable frontend
 
   workers = WorkerQueue.new
-  start_at = 0.0
 
   loop do
     poller = workers.available > 0 ? poll_both : poll_workers
@@ -93,17 +101,18 @@ def run
             $logger.debug "got msg worker=#{workerid} len=#{msgs.length} msgs=#{msgs}"
 
             # Add this worker to the list of available workers
-            workers.ready(Worker.new(workerid))
+            workers.ready(workerid)
 
             if msgs.length==2
+              # [workerid, msg]
               $logger.error "Error: Invalid message from worker: #{msgs}" unless [PPP_READY, PPP_PONG].include?(msgs[1])
               $logger.debug "recv worker pong" if msgs[1]==PPP_PONG
               $logger.debug "recv worker ready" if msgs[1]==PPP_READY
             elsif msgs.length>=4
+              # [workerid, clientid, '', reply]
               # send reply back to client
-              # ['', clientid, '', reply]
-              frontend.send_strings msgs[2..-1]
-              $logger.info "logstash handling time: #{Time.now.to_f - start_at}"
+              $logger.debug "<-- response worker=#{workerid} to client=#{msgs[0]}"
+              frontend.send_strings msgs[1..-1]
             else
               $logger.error "Error: Invalid message from worker: #{msgs}"
             end
@@ -114,9 +123,11 @@ def run
           # Read the request from the client and forward it to the LRU worker
           frontend.recv_strings msgs = []
           $logger.debug "got msg client=#{msgs[0]} len=#{msgs.length} msgs=#{msgs[0..-2]}"
-          if msgs.length>=2 && workers.available>0
-            start_at = Time.now.to_f
-            backend.send_strings [workers.next, ''] + msgs
+          if msgs.length>=3 && workers.available>0
+            # [ clientid, '', request ]
+            workerid = workers.next
+            $logger.debug "--> request client=#{msgs[0]} to worker=#{workerid}"
+            backend.send_strings [workerid] + msgs
           end
 
         end
@@ -125,10 +136,10 @@ def run
     end # while poller.poll
 
     # Send pings to idle workers if it's time
-    workers.queue.each do |identity,worker|
+    workers.queue.each do |workerid,worker|
       if Time.now > worker.ping_at
-        $logger.debug "send ping to #{identity}"
-        backend.send_strings [identity, '', PPP_PING]
+        $logger.debug "send ping to worker=#{workerid}"
+        backend.send_strings [workerid, PPP_PING]
       end
     end
 
