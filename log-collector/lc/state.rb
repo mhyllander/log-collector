@@ -12,7 +12,7 @@ module LogCollector
 
     def process_state
       state_processor = proc do |events|
-        #$logger.debug "process state updates: #{events}"
+        $logger.debug "process state updates: #{events}"
 
         events.each do |ev|
           @state[ev.path] ||= {}
@@ -24,7 +24,7 @@ module LogCollector
         end
 
         File.open(@state_file, 'w') { |file| file.write(@state.to_json) }
-        $logger.debug "saved state=#{@state}"
+        $logger.info "saved state=#{@state}"
 
         @state_queue.pop(state_processor)
       end

@@ -88,7 +88,7 @@ module LogCollector
           cmsg = Zlib::Deflate.deflate(msg.to_json)
           response = nil
 
-          $logger.debug "send #{msg['n']} events to worker, serial=#{serial}"
+          $logger.info "send #{msg['n']} events to worker, serial=#{serial}"
           
           loop do
             begin
@@ -97,16 +97,16 @@ module LogCollector
                 response = JSON.parse(rcvmsg[0])
                 if response.length==3 && response[0]=='ACK'
                   break if response[1]==serial
-                  $logger.debug "got ack for wrong serial: expecting #{serial} received #{response[1]}"
+                  $logger.error "got ack for wrong serial: expecting #{serial} received #{response[1]}"
                 else
-                  $logger.debug "got unexpected message: #{rcvmsg}"
+                  $logger.error "got unexpected message: #{rcvmsg}"
                 end
               else
-                $logger.debug "got unexpected message: #{rcvmsg}"
+                $logger.error "got unexpected message: #{rcvmsg}"
               end
                 
             rescue Exception => e
-              $logger.debug "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
+              $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
               sleep @delay
             end
           end
@@ -117,7 +117,7 @@ module LogCollector
           response
         end
         sendcb = proc do |response|
-          $logger.debug "worker response: #{response}"
+          $logger.info "worker response: #{response}"
           @sendbuf = nil
         end
 
@@ -155,7 +155,7 @@ module LogCollector
       @socket.setsockopt(ZMQ::IDENTITY, @clientid)
       @poller.register_readable @socket
       @servers.each do |addr|
-        $logger.debug "bind to #{addr}"
+        $logger.info "bind to #{addr}"
         @socket.connect addr
       end
     end

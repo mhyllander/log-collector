@@ -20,7 +20,7 @@ Features:
 
 Log-collector is written in Ruby and is powered by the eventmachine,
 eventmachine-tail and ffi-rzmq gems. Eventmachine-tail has been enhanced and
-fixed a bit (custom version 0.6.4.2).
+fixed a bit (custom version 0.6.4.3).
 
 Currently log-collector used ZeroMQ 4.0.4 and ffi-rzmq 2.0.1. The version
 bundled with logstash 1.4.1 is too old, therefore ffi-rzmq 2.0.1 needs to be

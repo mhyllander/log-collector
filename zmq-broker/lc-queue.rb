@@ -10,10 +10,6 @@ PPP_READY = "\x01" # Signals worker is ready
 PPP_PING  = "\x02" # Signals queue ping
 PPP_PONG  = "\x03" # Signals worker pong
 
-$logger = Logger.new(STDERR)
-$logger.level = ($DEBUG and Logger::DEBUG or Logger::WARN)
-$logger.debug("Debugging lc-queue...")
-
 class Worker
   attr_reader :identity
   attr_reader :expiry
@@ -98,7 +94,7 @@ def run
           backend.recv_strings msgs = []
           if msgs.length>0
             workerid = msgs[0]
-            $logger.debug "got msg worker=#{workerid} len=#{msgs.length} msgs=#{msgs}"
+            $logger.debug { "got msg worker=#{workerid} len=#{msgs.length} msgs=#{msgs}" }
 
             # Add this worker to the list of available workers
             workers.ready(workerid)
@@ -111,7 +107,7 @@ def run
             elsif msgs.length>=4
               # [workerid, clientid, '', reply]
               # send reply back to client
-              $logger.debug "<-- response worker=#{workerid} to client=#{msgs[0]}"
+              $logger.info "<-- response worker=#{workerid} to client=#{msgs[0]}"
               frontend.send_strings msgs[1..-1]
             else
               $logger.error "Error: Invalid message from worker: #{msgs}"
@@ -122,11 +118,11 @@ def run
 
           # Read the request from the client and forward it to the LRU worker
           frontend.recv_strings msgs = []
-          $logger.debug "got msg client=#{msgs[0]} len=#{msgs.length} msgs=#{msgs[0..-2]}"
+          $logger.debug { "got msg client=#{msgs[0]} len=#{msgs.length} msgs=#{msgs[0..-2]}" }
           if msgs.length>=3 && workers.available>0
             # [ clientid, '', request ]
             workerid = workers.next
-            $logger.debug "--> request client=#{msgs[0]} to worker=#{workerid}"
+            $logger.info "--> request client=#{msgs[0]} to worker=#{workerid}"
             backend.send_strings [workerid] + msgs
           end
 
@@ -155,7 +151,9 @@ $options = {
   frontend: 'tcp://*:5559',
   backend: 'tcp://*:5560',
   ping_interval: 1,
-  ping_liveness: 3
+  ping_liveness: 3,
+  logfile: nil,
+  loglevel: 'WARN'
 }
 
 parser = OptionParser.new do |opts|
@@ -170,8 +168,14 @@ parser = OptionParser.new do |opts|
   opts.on("-i", "--pinginterval NUMBER", Integer, "The ping interval in seconds (default=#{$options[:ping_interval]}).") do |v|
     $options[:ping_interval] = v
   end
-  opts.on("-l", "--pingliveness NUMBER", Integer, "The ping liveness (number of unanswered pings before failing) (default=#{$options[:ping_liveness]}).") do |v|
+  opts.on("-v", "--pingliveness NUMBER", Integer, "The ping liveness (number of unanswered pings before failing) (default=#{$options[:ping_liveness]}).") do |v|
     $options[:ping_liveness] = v
+  end
+  opts.on("-l", "--logfile LOGFILE", "Log to file (default=#{$options[:logfile]}).") do |v|
+    $options[:logfile] = v
+  end
+  opts.on("-L", "--loglevel LOGLEVEL", "Log level (default=#{$options[:loglevel]}).") do |v|
+    $options[:loglevel] = v.upcase
   end
 
   opts.on_tail("-h", "--help", "Show this message") do
@@ -181,5 +185,28 @@ parser = OptionParser.new do |opts|
 
 end
 parser.parse!
+
+if $options[:logfile]
+  $logger = Logger.new($options[:logfile], 'daily' )
+else
+  $logger = Logger.new(STDERR)
+end
+level = 
+  case $options[:loglevel]
+  when 'DEBUG'
+    Logger::DEBUG
+  when 'INFO'
+    Logger::INFO
+  when 'WARN'
+    Logger::WARN
+  when 'ERROR'
+    Logger::ERROR
+  when 'FATAL'
+    Logger::FATAL
+  else
+    Logger::WARN
+  end
+$logger.level = ($DEBUG and Logger::DEBUG or level)
+$logger.debug("Debugging lc-queue...")
 
 run

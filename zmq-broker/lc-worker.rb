@@ -14,10 +14,6 @@ PPP_PONG  = "\x03" # Signals worker pong
 INTERVAL_INIT = 1
 INTERVAL_MAX  = 32
 
-$logger = Logger.new(STDERR)
-$logger.level = ($DEBUG and Logger::DEBUG or Logger::WARN)
-$logger.debug("Debugging lc-worker...")
-
 # Helper function that returns a new configured socket
 # connected to the Paranoid Pirate queue
 def worker_socket(context, identity, poller)
@@ -105,7 +101,9 @@ end
 $options = {
   queue: 'tcp://127.0.0.1:5560',
   ping_interval: 1,
-  ping_liveness: 3
+  ping_liveness: 3,
+  logfile: nil,
+  loglevel: 'WARN'
 }
 
 parser = OptionParser.new do |opts|
@@ -117,8 +115,14 @@ parser = OptionParser.new do |opts|
   opts.on("-i", "--pinginterval NUMBER", Integer, "The ping interval in seconds (default=#{$options[:ping_interval]}).") do |v|
     $options[:ping_interval] = v
   end
-  opts.on("-l", "--pingliveness NUMBER", Integer, "The ping liveness (number of unanswered pings before failing) (default=#{$options[:ping_liveness]}).") do |v|
+  opts.on("-v", "--pingliveness NUMBER", Integer, "The ping liveness (number of unanswered pings before failing) (default=#{$options[:ping_liveness]}).") do |v|
     $options[:ping_liveness] = v
+  end
+  opts.on("-l", "--logfile LOGFILE", "Log to file (default=#{$options[:logfile]}).") do |v|
+    $options[:logfile] = v
+  end
+  opts.on("-L", "--loglevel LOGLEVEL", "Log level (default=#{$options[:loglevel]}).") do |v|
+    $options[:loglevel] = v.upcase
   end
 
   opts.on_tail("-h", "--help", "Show this message") do
@@ -128,5 +132,28 @@ parser = OptionParser.new do |opts|
 
 end
 parser.parse!
+
+if $options[:logfile]
+  $logger = Logger.new($options[:logfile], 'daily' )
+else
+  $logger = Logger.new(STDERR)
+end
+level = 
+  case $options[:loglevel]
+  when 'DEBUG'
+    Logger::DEBUG
+  when 'INFO'
+    Logger::INFO
+  when 'WARN'
+    Logger::WARN
+  when 'ERROR'
+    Logger::ERROR
+  when 'FATAL'
+    Logger::FATAL
+  else
+    Logger::WARN
+  end
+$logger.level = ($DEBUG and Logger::DEBUG or level)
+$logger.debug("Debugging lc-worker...")
 
 run

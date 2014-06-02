@@ -1,7 +1,7 @@
 source "https://rubygems.org"
 
 gem 'eventmachine'
-gem 'eventmachine-tail', '~> 0.6.4.2'
+gem 'eventmachine-tail', '~> 0.6.4.3'
 gem 'ffi-rzmq'
 gem 'json'
 gem 'logger'

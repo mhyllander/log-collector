@@ -20,12 +20,10 @@ require 'lc/collector'
 require 'lc/spooler'
 require 'lc/state'
 
-$logger = Logger.new(STDERR)
-$logger.level = ($DEBUG and Logger::DEBUG or Logger::WARN)
-$logger.debug("Debugging log-collector...")
-
 options = {
-  configfile: 'log-collector.conf'
+  configfile: 'log-collector.conf',
+  logfile: nil,
+  loglevel: 'WARN'
 }
 
 parser = OptionParser.new do |opts|
@@ -33,6 +31,12 @@ parser = OptionParser.new do |opts|
 
   opts.on("-f", "--config CONFIGFILE", "The configuration file to use.") do |v|
     options[:configfile] = v
+  end
+  opts.on("-l", "--logfile LOGFILE", "Log to file (default=#{options[:logfile]}).") do |v|
+    options[:logfile] = v
+  end
+  opts.on("-L", "--loglevel LOGLEVEL", "Log level (default=#{options[:loglevel]}).") do |v|
+    options[:loglevel] = v.upcase
   end
 
   opts.on_tail("-h", "--help", "Show this message") do
@@ -42,6 +46,29 @@ parser = OptionParser.new do |opts|
 
 end
 parser.parse!
+
+if options[:logfile]
+  $logger = Logger.new(options[:logfile], 'daily' )
+else
+  $logger = Logger.new(STDERR)
+end
+level = 
+  case options[:loglevel]
+  when 'DEBUG'
+    Logger::DEBUG
+  when 'INFO'
+    Logger::INFO
+  when 'WARN'
+    Logger::WARN
+  when 'ERROR'
+    Logger::ERROR
+  when 'FATAL'
+    Logger::FATAL
+  else
+    Logger::WARN
+  end
+$logger.level = ($DEBUG and Logger::DEBUG or level)
+$logger.debug("Debugging log-collector...")
 
 config = LogCollector::Config.new(options[:configfile])
 

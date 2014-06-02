@@ -17,7 +17,7 @@ PLATFORMS
 
 DEPENDENCIES
   eventmachine
-  eventmachine-tail (~> 0.6.4.2)
+  eventmachine-tail (~> 0.6.4.3)
   ffi-rzmq
   json
   logger

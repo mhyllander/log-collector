@@ -34,7 +34,7 @@ module LogCollector
       enqueue_line @buffer.flush unless @buffer.empty?
       # set the current line position
       @linepos = self.position
-      $logger.debug "#{path}: new pos=#{@linepos}"
+      $logger.info "#{path}: new pos=#{@linepos}"
     end
 
     def receive_data(data)
