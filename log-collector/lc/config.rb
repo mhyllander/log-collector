@@ -10,8 +10,8 @@ module LogCollector
     Default_MultilineWait = '2s'
 
     Default_SendErrorDelay = '1s'
-    Default_SendRetries = 5
-    Default_RecvTimeout = '10s'
+    Default_SendRetries = 3
+    Default_RecvTimeout = '60s'
 
     attr_reader :state
 
