@@ -48,7 +48,7 @@ end
 parser.parse!
 
 if options[:logfile]
-  $logger = Logger.new(options[:logfile], 'daily' )
+  $logger = Logger.new(options[:logfile], :shift_age => 5, :shift_size => 5*1024*1024)
 else
   $logger = Logger.new(STDERR)
 end
