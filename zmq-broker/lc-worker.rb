@@ -3,9 +3,9 @@
 require 'rubygems'
 require 'ffi-rzmq'
 require 'optparse'
-require 'logger'
 require 'zlib'
 require 'json'
+require_relative '../log-collector/lc/logger'
 
 PPP_READY = "\x01" # Signals worker is ready
 PPP_PING  = "\x02" # Signals queue ping
@@ -102,7 +102,7 @@ $options = {
   queue: 'tcp://127.0.0.1:5560',
   ping_interval: 1,
   ping_liveness: 3,
-  logfile: nil,
+  syslog: false,
   loglevel: 'WARN'
 }
 
@@ -118,8 +118,8 @@ parser = OptionParser.new do |opts|
   opts.on("-v", "--pingliveness NUMBER", Integer, "The ping liveness (number of unanswered pings before failing) (default=#{$options[:ping_liveness]}).") do |v|
     $options[:ping_liveness] = v
   end
-  opts.on("-l", "--logfile LOGFILE", "Log to file (default=#{$options[:logfile]}).") do |v|
-    $options[:logfile] = v
+  opts.on("-l", "--[no-]syslog", "Log to syslog (default=#{$options[:syslog]}).") do |v|
+    $options[:syslog] = v
   end
   opts.on("-L", "--loglevel LOGLEVEL", "Log level (default=#{$options[:loglevel]}).") do |v|
     $options[:loglevel] = v.upcase
@@ -133,27 +133,7 @@ parser = OptionParser.new do |opts|
 end
 parser.parse!
 
-if $options[:logfile]
-  $logger = Logger.new($options[:logfile], :shift_age => 5, :shift_size => 5*1024*1024)
-else
-  $logger = Logger.new(STDERR)
-end
-level = 
-  case $options[:loglevel]
-  when 'DEBUG'
-    Logger::DEBUG
-  when 'INFO'
-    Logger::INFO
-  when 'WARN'
-    Logger::WARN
-  when 'ERROR'
-    Logger::ERROR
-  when 'FATAL'
-    Logger::FATAL
-  else
-    Logger::WARN
-  end
-$logger.level = ($DEBUG and Logger::DEBUG or level)
-$logger.debug("Debugging lc-worker...")
+$logger = LogCollector::Logger.new $options[:syslog], parser.program_name, ($DEBUG ? 'DEBUG' : $options[:loglevel])
+$logger.debug("Debugging #{$logger.id}...")
 
 run

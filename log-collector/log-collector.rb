@@ -9,10 +9,10 @@ require 'eventmachine-tail'
 require 'ffi-rzmq'
 require 'optparse'
 require 'json'
-require 'logger'
 require 'socket'
 require 'zlib'
 
+require 'lc/logger'
 require 'lc/config'
 require 'lc/logevent'
 require 'lc/limited_queue'
@@ -22,7 +22,7 @@ require 'lc/state'
 
 options = {
   configfile: 'log-collector.conf',
-  logfile: nil,
+  syslog: false,
   loglevel: 'WARN'
 }
 
@@ -32,8 +32,8 @@ parser = OptionParser.new do |opts|
   opts.on("-f", "--config CONFIGFILE", "The configuration file to use.") do |v|
     options[:configfile] = v
   end
-  opts.on("-l", "--logfile LOGFILE", "Log to file (default=#{options[:logfile]}).") do |v|
-    options[:logfile] = v
+  opts.on("-l", "--[no-]syslog", "Log to syslog (default=#{options[:syslog]}).") do |v|
+    options[:syslog] = v
   end
   opts.on("-L", "--loglevel LOGLEVEL", "Log level (default=#{options[:loglevel]}).") do |v|
     options[:loglevel] = v.upcase
@@ -47,28 +47,8 @@ parser = OptionParser.new do |opts|
 end
 parser.parse!
 
-if options[:logfile]
-  $logger = Logger.new(options[:logfile], :shift_age => 5, :shift_size => 5*1024*1024)
-else
-  $logger = Logger.new(STDERR)
-end
-level = 
-  case options[:loglevel]
-  when 'DEBUG'
-    Logger::DEBUG
-  when 'INFO'
-    Logger::INFO
-  when 'WARN'
-    Logger::WARN
-  when 'ERROR'
-    Logger::ERROR
-  when 'FATAL'
-    Logger::FATAL
-  else
-    Logger::WARN
-  end
-$logger.level = ($DEBUG and Logger::DEBUG or level)
-$logger.debug("Debugging log-collector...")
+$logger = LogCollector::Logger.new options[:syslog], parser.program_name, ($DEBUG ? 'DEBUG' : options[:loglevel])
+$logger.debug("Debugging #{$logger.id}...")
 
 config = LogCollector::Config.new(options[:configfile])
 
