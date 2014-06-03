@@ -30,7 +30,7 @@ module LogCollector
 
     def schedule_process_event
       @spool_queue.pop do |ev|
-        #$logger.debug "process event: #{ev}"
+        $logger.debug "process event: #{ev}"
         @buffer << ev
 
         if @buffer.length >= @flush_size
