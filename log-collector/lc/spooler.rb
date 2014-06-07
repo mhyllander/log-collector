@@ -140,7 +140,7 @@ module LogCollector
     def formatted_events
       @sendbuf.collect do |ev|
         {
-          'ts' => ev.timestamp.utc.strftime('%FT%T.%LZ'),
+          'ts' => ev.timestamp.to_f,
           'file' => ev.path,
           'msg' => ev.line,
           'flds' => ev.fields
