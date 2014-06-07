@@ -85,6 +85,7 @@ def run
   workers = WorkerQueue.new
 
   loop do
+    $logger.info "waiting for available workers" unless workers.available > 0
     poller = workers.available > 0 ? poll_both : poll_workers
     while poller.poll($options[:ping_interval]*1000) > 0
       poller.readables.each do |readable|
@@ -107,7 +108,7 @@ def run
             elsif msgs.length>=4
               # [workerid, clientid, '', reply]
               # send reply back to client
-              $logger.info "<-- response worker=#{workerid} to client=#{msgs[0]}"
+              $logger.info "<-- response worker=#{workerid} to client=#{msgs[1]}"
               frontend.send_strings msgs[1..-1]
             else
               $logger.error "Error: Invalid message from worker: #{msgs}"
