@@ -190,7 +190,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 host = batch['host'].force_encoding(Encoding::UTF_8)
                 batch['events'].each do |ev|
                   data = {
-                    '@timestamp' => ev['ts'],
+                    '@timestamp' => Time.at(ev['ts']),
                     'host' => host,
                     'file' => ev['file'].force_encoding(Encoding::UTF_8),
                     'message' => ev['msg'].force_encoding(Encoding::UTF_8)
