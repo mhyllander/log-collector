@@ -59,7 +59,7 @@ module LogCollector
     private
 
     def syslog(prio,msg)
-      Syslog.log @prio[prio], "[#{LEVELS[prio]}] #{msg}"
+      Syslog.log @prio[prio], "[#{LEVELS[prio]}] #{msg}".gsub(/%/,'%%')
     end
 
     def filelog(prio,msg)
