@@ -25,8 +25,9 @@ module EventMachine
         if @items.empty?
           @popq << cb
         else
-          cb.call @items.shift
+          item = @items.shift
           adjust_full_state
+          cb.call item
         end
       end
       nil # Always returns nil
@@ -38,8 +39,8 @@ module EventMachine
     def push(*items)
       EM.schedule do
         @items.push(*items)
-        @popq.shift.call @items.shift until @items.empty? || @popq.empty?
         adjust_full_state
+        @popq.shift.call @items.shift until @items.empty? || @popq.empty?
       end
     end
     alias :<< :push

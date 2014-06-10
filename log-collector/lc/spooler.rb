@@ -14,12 +14,13 @@ module LogCollector
       @sendbuf = nil
 
       @delay = config.send_error_delay
-      @retries = config.send_retries
+      @tries = config.recv_tries
       @timeout = config.recv_timeout
 
       @zmq_context = ZMQ::Context.new(1)
       @poller = ZMQ::Poller.new
       @clientid = "C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+
       client_sock
       schedule_process_event
 
@@ -29,17 +30,29 @@ module LogCollector
     end
 
     def schedule_process_event
+      # Note that LimitedQueue.pop does not block when we are on the reactor thread and there is data to read.
       @spool_queue.pop do |ev|
-        $logger.debug "process event: #{ev}"
-        @buffer << ev
-
-        if @buffer.length >= @flush_size
+        process_event ev
+        read_spool_queue
+        if @buffer.size >= @flush_size
           send_events
         else
-          schedule_flush_buffer if @buffer.length==1
-          schedule_process_event
+          EM.next_tick { schedule_process_event }
         end
       end
+    end
+
+    def read_spool_queue
+      while @spool_queue.size > 0 && @buffer.size < @flush_size
+        @spool_queue.pop do |ev|
+          process_event ev
+        end
+      end
+    end
+
+    def process_event(ev)
+      @buffer << ev
+      schedule_flush_buffer if @buffer.size==1
     end
 
     def schedule_flush_buffer
@@ -70,6 +83,7 @@ module LogCollector
         schedule_wait_for_sendop
         return
       end
+
       # ready to send
       unless @buffer.empty?
         @sendbuf = @buffer
@@ -88,7 +102,7 @@ module LogCollector
           cmsg = Zlib::Deflate.deflate(msg.to_json)
           response = nil
 
-          $logger.info "send #{msg['n']} events to worker, serial=#{serial}"
+          $logger.info "sending #{msg['n']} events, serial=#{serial}"
           
           loop do
             begin
@@ -126,7 +140,7 @@ module LogCollector
 
       # after scheduling sending of events, resume processing log events
       $logger.debug "continue processing events"
-      schedule_process_event
+      EM.next_tick { schedule_process_event }
     end
 
     def formatted_msg
@@ -160,9 +174,20 @@ module LogCollector
       end
     end
 
+    def client_sock_reopen
+      $logger.debug "close spool socket"
+      @poller.deregister_readable @socket
+      @socket.close
+      client_sock
+    end
+
     def send(message)
-      @retries.times do |tries|
-        raise("send: send failed") unless @socket.send_string(message)
+      $logger.info "--> request client #{@clientid} to worker"
+      unless @socket.send_string(message)
+        client_sock_reopen
+        raise("send: send failed")
+      end
+      @tries.times do |try|
         while @poller.poll(@timeout*1000) > 0
           @poller.readables.each do |readable|
             if readable==@socket
@@ -171,9 +196,7 @@ module LogCollector
             end
           end
         end
-        @poller.deregister_readable @socket
-        @socket.close
-        client_sock
+        client_sock_reopen
       end
       raise 'send: server down'
     end

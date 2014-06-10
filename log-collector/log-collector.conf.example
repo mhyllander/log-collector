@@ -16,8 +16,8 @@
    "queue_high" : 1000,                       # optional, default 2000
    "queue_low" : 500,                         # optional, default 1500
    "send_error_delay" : "5s",                 # optional, default 1s
-   "send_retries", : 5,			      # optional, default 3
-   "recv_timeout" : "10s",		      # optional, default 60s
+   "recv_tries", : 4,			      # optional, default 3
+   "recv_timeout" : "15s",		      # optional, default 10s
    "files" : {
     "/opt/api-service/logs/hive-service.log" : {
       "fields" : {                            # optional

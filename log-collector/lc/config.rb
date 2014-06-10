@@ -10,8 +10,8 @@ module LogCollector
     Default_MultilineWait = '2s'
 
     Default_SendErrorDelay = '1s'
-    Default_SendRetries = 3
-    Default_RecvTimeout = '60s'
+    Default_RecvTries = 3
+    Default_RecvTimeout = '10s'
 
     attr_reader :state
 
@@ -27,7 +27,7 @@ module LogCollector
       @config['flush_size'] ||= Default_FlushSize
 
       @config['send_error_delay'] = duration_for(@config['send_error_delay'] || Default_SendErrorDelay)
-      @config['send_retries'] ||= Default_SendRetries
+      @config['recv_tries'] ||= Default_RecvTries
       @config['recv_timeout'] = duration_for(@config['recv_timeout'] || Default_RecvTimeout)
 
       @config['files'].each do |path,fc|
@@ -114,8 +114,8 @@ module LogCollector
       @config['send_error_delay']
     end
 
-    def send_retries
-      @config['send_retries']
+    def recv_tries
+      @config['recv_tries']
     end
 
     def recv_timeout
