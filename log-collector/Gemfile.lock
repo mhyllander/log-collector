@@ -2,7 +2,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     eventmachine (1.0.3)
-    eventmachine-tail (0.6.4.1)
+    eventmachine-tail (0.6.4.3)
       eventmachine
     ffi (1.9.3)
     ffi-rzmq (2.0.1)
