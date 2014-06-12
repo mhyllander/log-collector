@@ -18,9 +18,9 @@ Features:
   without reconfiguring or restarting any other instances.
 * The queue load balancer spreads batches over the available logstash indexers.
 
-Log-collector is written in Ruby and is powered by the eventmachine,
-eventmachine-tail and ffi-rzmq gems. Eventmachine-tail has been enhanced and
-fixed a bit (custom version 0.6.4.3).
+Log-collector is written for JRuby, and uses the ffi-rzmq and jruby-notify
+gems. Jruby-notify has been enhanced and modified to support 64-bit Linux
+(custom version 0.4.0.1).
 
 Currently log-collector used ZeroMQ 4.0.4 and ffi-rzmq 2.0.1. The version
 bundled with logstash 1.4.1 is too old, therefore ffi-rzmq 2.0.1 needs to be
@@ -63,5 +63,5 @@ Create log-collector deb package
 
 ```bash
 cd log-collector/..
-fpm -s dir -t deb -n log-collector -v 0.1.0 -a all -C log-collector --prefix opt/log-collector/ -p log-collector-VERSION_ARCH.deb README.md log-collector bundle zmq-broker logstash-inputs
+fpm -s dir -t deb -n log-collector-jruby -v 0.1.0 -a amd64 -C log-collector --prefix opt/log-collector/ -p log-collector-jruby-VERSION_ARCH.deb README.md bin log-collector bundle zmq-broker logstash-inputs
 ```

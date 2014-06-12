@@ -1,23 +1,20 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    eventmachine (1.0.3)
-    eventmachine-tail (0.6.4.3)
-      eventmachine
-    ffi (1.9.3)
+    ffi (1.9.3-java)
     ffi-rzmq (2.0.1)
       ffi-rzmq-core (>= 1.0.1)
     ffi-rzmq-core (1.0.3)
       ffi (~> 1.9)
-    json (1.8.1)
+    jruby-notify (0.4.0.1)
+    json (1.8.1-java)
     logger (1.2.8)
 
 PLATFORMS
-  ruby
+  java
 
 DEPENDENCIES
-  eventmachine
-  eventmachine-tail (~> 0.6.4.3)
   ffi-rzmq
+  jruby-notify (= 0.4.0.1)
   json
   logger

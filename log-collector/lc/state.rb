@@ -2,34 +2,23 @@ module LogCollector
 
   class State
 
-    def initialize(config,state_queue)
+    def initialize(config)
       @state = config.state
       @state_file = config.state_file
-      @state_queue = state_queue
-
-      process_state
     end
 
-    def process_state
-      state_processor = proc do |events|
-        $logger.debug "process state updates: #{events}"
+    def update_state(state_update)
+      $logger.debug { "updating state: #{state_update}" }
 
-        events.each do |ev|
-          @state[ev.path] ||= {}
-          @state[ev.path]['dev'] = ev.dev
-          @state[ev.path]['inode'] = ev.inode
-          @state[ev.path]['pos'] = ev.pos
-          @state[ev.path]['size'] = ev.stat.size
-          @state[ev.path]['mtime'] = ev.stat.mtime
-        end
-
-        File.open(@state_file, 'w') { |file| file.write(@state.to_json) }
-        $logger.info "saved state=#{@state}"
-
-        @state_queue.pop(state_processor)
+      state_update.each do |ev|
+        @state[ev.path] ||= {}
+        @state[ev.path]['dev'] = ev.dev
+        @state[ev.path]['inode'] = ev.inode
+        @state[ev.path]['pos'] = ev.pos
       end
 
-      @state_queue.pop(state_processor)
+      File.open(@state_file, 'w') { |file| file.write(@state.to_json) }
+      $logger.info "saved state=#{@state}"
     end
 
   end # class State

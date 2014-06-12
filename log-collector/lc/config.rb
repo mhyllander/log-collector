@@ -5,8 +5,7 @@ module LogCollector
     Default_FlushInterval = '1s'
     Default_FlushSize = 1000
 
-    Default_QueueLowWaterMark = 1500
-    Default_QueueHighWaterMark = 2000
+    Default_QueueSize = 2000
     Default_MultilineWait = '2s'
 
     Default_SendErrorDelay = '1s'
@@ -21,8 +20,7 @@ module LogCollector
 
       @config['hostname'] ||= Socket.gethostname
       @config['state_file'] ||= Default_StateFile
-      @config['queue_low'] ||= Default_QueueLowWaterMark
-      @config['queue_high'] ||= Default_QueueHighWaterMark
+      @config['queue_size'] ||= Default_QueueSize
       @config['flush_interval'] = duration_for(@config['flush_interval'] || Default_FlushInterval)
       @config['flush_size'] ||= Default_FlushSize
 
@@ -122,12 +120,8 @@ module LogCollector
       @config['recv_timeout']
     end
 
-    def queue_low
-      @config['queue_low']
-    end
-
-    def queue_high
-      @config['queue_high']
+    def queue_size
+      @config['queue_size']
     end
 
     private

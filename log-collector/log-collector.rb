@@ -4,21 +4,22 @@ libdir = File.expand_path(File.dirname(__FILE__))
 $LOAD_PATH.unshift(libdir) unless $LOAD_PATH.include?(libdir)
 
 require 'rubygems'
-require 'eventmachine'
-require 'eventmachine-tail'
 require 'ffi-rzmq'
 require 'optparse'
 require 'json'
 require 'socket'
 require 'zlib'
+require 'thread'
+require 'jruby-notify'
+require 'pathname'
 
 require 'lc/logger'
 require 'lc/config'
 require 'lc/logevent'
-require 'lc/limited_queue'
 require 'lc/collector'
 require 'lc/spooler'
 require 'lc/state'
+require 'lc/buftok'
 
 options = {
   configfile: 'log-collector.conf',
@@ -52,21 +53,15 @@ $logger.debug("Debugging #{$logger.id}...")
 
 config = LogCollector::Config.new(options[:configfile])
 
-spool_queue = EM::LimitedQueue.new
-spool_queue.high_water_mark = config.queue_high
-spool_queue.low_water_mark = config.queue_low
-state_queue = EM::Queue.new
+spool_queue = SizedQueue.new(config.queue_size)
+
+state_mgr = LogCollector::State.new(config)
+spooler = LogCollector::Spooler.new(config,spool_queue,state_mgr)
+
 collectors = []
-spooler = nil
-state = nil
-EM.run do
-  config.files.each do |path,fc|
-    if File.file? path
-      collectors << LogCollector::Collector.new(path,fc,spool_queue)
-    else
-      LogCollector::Watcher.new(path).callback {collectors << LogCollector::Collector.new(path,fc,spool_queue)}
-    end
-  end
-  spooler = LogCollector::Spooler.new(config,spool_queue,state_queue)
-  state = LogCollector::State.new(config,state_queue)
+config.files.each do |path,fc|
+  collectors << LogCollector::Collector.new(path,fc,spool_queue)
 end
+
+# just hang in here and let the threads do the work
+spooler.spool_thread.join

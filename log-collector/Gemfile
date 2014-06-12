@@ -1,7 +1,6 @@
 source "https://rubygems.org"
 
-gem 'eventmachine'
-gem 'eventmachine-tail', '~> 0.6.4.3'
 gem 'ffi-rzmq'
 gem 'json'
 gem 'logger'
+gem 'jruby-notify', '0.4.0.1'

@@ -59,11 +59,11 @@ module LogCollector
     private
 
     def syslog(prio,msg)
-      Syslog.log @prio[prio], "[#{LEVELS[prio]}] #{msg}".gsub(/%/,'%%')
+      Syslog.log @prio[prio], "@#{Thread.current['name']} [#{LEVELS[prio]}] #{msg}".gsub(/%/,'%%')
     end
 
     def filelog(prio,msg)
-      @file.puts "#{Time.now.to_datetime.iso8601} #{@id}: [#{LEVELS[prio]}] #{msg}"
+      @file.puts "#{Time.now.to_datetime.iso8601} #{@id}: @#{Thread.current['name']} [#{LEVELS[prio]}] #{msg}"
     end
 
   end

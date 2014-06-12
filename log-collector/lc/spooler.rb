@@ -1,17 +1,21 @@
 module LogCollector
 
   class Spooler
-    def initialize(config,spool_queue,state_queue)
+    attr_reader :spool_thread
+
+    def initialize(config,spool_queue,state_mgr)
       @hostname = config.hostname
       @servers = config.servers
       @spool_queue = spool_queue
-      @state_queue = state_queue
+      @state_mgr = state_mgr
 
       @flush_interval = config.flush_interval
       @flush_size = config.flush_size
-      @flush_timer = nil
+      @flush_mutex = Mutex.new
+      @flush_thread = nil
+      @send_thread = nil
+
       @buffer = []
-      @sendbuf = nil
 
       @delay = config.send_error_delay
       @tries = config.recv_tries
@@ -21,30 +25,26 @@ module LogCollector
       @poller = ZMQ::Poller.new
       @clientid = "C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
 
-      client_sock
-      schedule_process_event
+      @spool_thread = Thread.new do
+        Thread.current['name'] = 'spooler'
+        begin
+          client_sock
+          process_events
+        rescue Exception => e
+          $logger.error "exception raised: #{e}"
+        end
+      end
 
       at_exit do
         @socket.close
       end
     end
 
-    def schedule_process_event
-      # Note that LimitedQueue.pop does not block when we are on the reactor thread and there is data to read.
-      @spool_queue.pop do |ev|
-        process_event ev
-        read_spool_queue
-        if @buffer.size >= @flush_size
-          send_events
-        else
-          EM.next_tick { schedule_process_event }
-        end
-      end
-    end
-
-    def read_spool_queue
-      while @spool_queue.size > 0 && @buffer.size < @flush_size
-        @spool_queue.pop do |ev|
+    def process_events
+      loop do
+        $logger.debug "waiting on queue"
+        ev = @spool_queue.pop
+        @flush_mutex.synchronize do
           process_event ev
         end
       end
@@ -52,107 +52,106 @@ module LogCollector
 
     def process_event(ev)
       @buffer << ev
-      schedule_flush_buffer if @buffer.size==1
-    end
-
-    def schedule_flush_buffer
-      @flush_timer.cancel if @flush_timer
-      $logger.debug "schedule flush timer"
-      @flush_timer = EM::Timer.new(@flush_interval) do
-        $logger.debug "flush timer"
+      if @buffer.size==1
+        schedule_flush_buffer
+      elsif @buffer.size >= @flush_size
+        cancel_flush_buffer
         send_events
       end
     end
 
-    def schedule_wait_for_sendop
-      EM.next_tick do
-        if @sendbuf.nil?
-          send_events
-        else
-          schedule_wait_for_sendop
+    def schedule_flush_buffer
+      $logger.debug "schedule flush timer"
+      # cancel scheduled flush
+      cancel_flush_buffer
+      # schedule new flush
+      @flush_thread = Thread.new do
+        begin
+          Thread.current['name'] = 'spooler_flush'
+          sleep @flush_interval
+          @flush_mutex.synchronize do
+            $logger.debug "flush spool buffer"
+            send_events
+          end
+        rescue Exception => e
+          $logger.error "exception raised: #{e}\n#{e.backtrace}"
         end
+        @flush_thread = nil
       end
     end
 
+    def cancel_flush_buffer
+      @flush_thread.kill if @flush_thread
+    end
+
     def send_events
-      $logger.debug "send_events: @buffer=#{!@buffer.empty?} @sendbuf=#{!@sendbuf.nil?}"
-      # check if waiting for a reply to previous send
-      unless @sendbuf.nil?
-        # already sending a batch and waiting for the callback
-        $logger.debug "wait for previous sendop to finish"
-        schedule_wait_for_sendop
-        return
+      # format the message to send
+      msg = formatted_msg
+      serial = Time.now.to_f.to_s
+      msg['serial'] = serial
+      cmsg = Zlib::Deflate.deflate(msg.to_json)
+
+      # collect the state to save when the msg has been acked
+      state_to_save = {}
+      @buffer.each do |ev|
+        state_to_save["#{ev.path}//#{ev.dev}//#{ev.inode}"] = ev
       end
 
-      # ready to send
-      unless @buffer.empty?
-        @sendbuf = @buffer
-        @buffer = []
+      $logger.info { "send_events: ready to send #{msg['n']} events, serial=#{serial}" }
 
-        sendop = proc do
-          # collect the accumulated final state
-          final_events = {}
-          @sendbuf.each do |ev|
-            final_events["#{ev.path}//#{ev.dev}//#{ev.inode}"] = ev
-          end
+      # wait for running thread to finish
+      @send_thread.join if @send_thread
 
-          msg = formatted_msg
-          serial = Time.now.to_f.to_s
-          msg['serial'] = serial
-          cmsg = Zlib::Deflate.deflate(msg.to_json)
+      @send_thread = Thread.new(cmsg,serial,state_to_save.values) do |data,serial,state_update|
+        begin
+          Thread.current['name'] = 'spooler_send'
           response = nil
-
-          $logger.info "sending #{msg['n']} events, serial=#{serial}"
           
           loop do
             begin
-              rcvmsg = send cmsg
+              rcvmsg = send data, serial
               if rcvmsg.length==1
                 response = JSON.parse(rcvmsg[0])
                 if response.length==3 && response[0]=='ACK'
+                  # exit the loop, save state and terminate the thread when ACK is received
                   break if response[1]==serial
-                  $logger.error "got ack for wrong serial: expecting #{serial} received #{response[1]}"
+                  $logger.error "got ACK for wrong serial: expecting #{serial} received #{response[1]}"
                 else
                   $logger.error "got unexpected message: #{rcvmsg}"
                 end
               else
                 $logger.error "got unexpected message: #{rcvmsg}"
               end
-                
+              
             rescue Exception => e
               $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
               sleep @delay
             end
           end
 
-          # save state
-          @state_queue.push final_events.values
-          
-          response
-        end
-        sendcb = proc do |response|
-          $logger.info "worker response: #{response}"
-          @sendbuf = nil
-        end
+          $logger.info { "<-- response from worker: #{response}" }
 
-        EM.defer(sendop,sendcb)
+          # save state
+          @state_mgr.update_state state_update
+        rescue Exception => e
+          $logger.error "exception raised: #{e}"
+        end
       end
 
-      # after scheduling sending of events, resume processing log events
-      $logger.debug "continue processing events"
-      EM.next_tick { schedule_process_event }
+      # empty the buffer before returning to processing the spool_queue
+      @buffer = []
     end
 
     def formatted_msg
       {
         'host' => @hostname,
-        'n' => @sendbuf.length,
+        'n' => @buffer.length,
         'events' => formatted_events
       }
     end
 
     def formatted_events
-      @sendbuf.collect do |ev|
+      @buffer.collect do |ev|
         {
           'ts' => ev.timestamp.to_f,
           'file' => ev.path,
@@ -169,7 +168,7 @@ module LogCollector
       @socket.setsockopt(ZMQ::IDENTITY, @clientid)
       @poller.register_readable @socket
       @servers.each do |addr|
-        $logger.info "bind to #{addr}"
+        $logger.debug { "bind to #{addr}" }
         @socket.connect addr
       end
     end
@@ -181,13 +180,13 @@ module LogCollector
       client_sock
     end
 
-    def send(message)
-      $logger.info "--> request client #{@clientid} to worker"
-      unless @socket.send_string(message)
-        client_sock_reopen
-        raise("send: send failed")
-      end
+    def send(message,serial)
+      $logger.info { "--> request client #{@clientid} to worker, serial=#{serial}" }
       @tries.times do |try|
+        unless @socket.send_string(message)
+          client_sock_reopen
+          raise 'send failed'
+        end
         while @poller.poll(@timeout*1000) > 0
           @poller.readables.each do |readable|
             if readable==@socket
@@ -198,7 +197,7 @@ module LogCollector
         end
         client_sock_reopen
       end
-      raise 'send: server down'
+      raise 'no response from worker'
     end
 
   end # class Spooler

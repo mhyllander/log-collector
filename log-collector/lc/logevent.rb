@@ -15,8 +15,7 @@ module LogCollector
       @pos = pos
       @fields = fields
       
-      now = Time.now
-      @timestamp = now #> stat.mtime ? stat.mtime : now
+      @timestamp = Time.now
     end
 
     def append(ev)
@@ -26,15 +25,15 @@ module LogCollector
     end
 
     def dev
-      @stat.dev
+      @stat[:dev]
     end
 
     def inode
-      @stat.ino
+      @stat[:inode]
     end
 
     def to_s
-      "LogEvent[#{path}(#{@stat.dev}/#{@stat.ino}): pos=#{@pos} log=#{@line}]"
+      "LogEvent[#{path}(#{dev}/#{inode}): pos=#{@pos} log=#{@line}]"
     end
   end
 
