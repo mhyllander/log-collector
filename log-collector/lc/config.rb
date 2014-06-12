@@ -38,6 +38,13 @@ module LogCollector
         json_state = File.read(state_file)
         @state = JSON.parse(json_state)
 
+        # Remove old state keys that are not updated anymore, so they are not carried forward.
+        # TODO(mhy): remove this some time
+        @state.each do |path,state|
+          state.delete 'size'
+          state.delete 'mtime'
+        end
+
         @config['files'].each do |path,fc|
 
           # does the file exist?
