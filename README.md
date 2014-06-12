@@ -29,6 +29,26 @@ added to the JRuby that comes with logstash (see below).
 A logcollector input is provided for logstash, which needs to be saved to the
 lib/logstash/inputs directory.
 
+Preparing to run log-collector with JRuby
+-----------------------------------------
+
+This is how I prepare an Ubuntu system for running log-collector.
+
+1. First of all I install rvm.
+2. Then I run the following commands:
+```bash
+rvm install jruby
+rvm use jruby
+rvm gemset create log-collector
+rvm gemset use log-collector
+cd log-collector/bundle
+gem install *.gem
+cd ../log-collector
+bundle install
+cd ../zmq-broker
+bundle install
+```
+
 Install latest ffi-rzmq gem in Logstash's JRuby bundle
 ------------------------------------------------------
 
@@ -62,6 +82,7 @@ Create log-collector deb package
 --------------------------------
 
 ```bash
-cd log-collector/..
-fpm -s dir -t deb -n log-collector-jruby -v 0.1.0 -a amd64 -C log-collector --prefix opt/log-collector/ -p log-collector-jruby-VERSION_ARCH.deb README.md bin log-collector bundle zmq-broker logstash-inputs
+sudo gem install fpm
+cd log-collector
+fpm -s dir -t deb -n log-collector-jruby -v 0.1.0 -a amd64 --prefix opt/log-collector/ -p log-collector-jruby-VERSION_ARCH.deb README.md bin log-collector bundle zmq-broker logstash-inputs
 ```
