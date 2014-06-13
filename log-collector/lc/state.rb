@@ -13,7 +13,7 @@ module LogCollector
       state_update.each do |ev|
         @state[ev.path] ||= {}
         @state[ev.path]['dev'] = ev.dev
-        @state[ev.path]['inode'] = ev.inode
+        @state[ev.path]['ino'] = ev.ino
         @state[ev.path]['pos'] = ev.pos
       end
 

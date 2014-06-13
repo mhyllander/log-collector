@@ -1,19 +1,18 @@
 module LogCollector
 
   class Collector
-    Default_Delimiter = "\n"
-
-    # Maximum size to read at a time from a single file.
-    CHUNKSIZE = 128*1024
-
     FORCE_ENCODING = !! (defined? Encoding)
 
     attr_reader :input_thread
+    attr_reader :monitor
 
     def initialize(path,fileconfig,spool_queue)
       @path = path
       @fileconfig = fileconfig
-      @delimiter = @fileconfig['delimiter'] || Default_Delimiter
+      @deadtime = fileconfig['deadtime']
+      @delimiter = fileconfig['delimiter']
+      @chunksize = fileconfig['chunksize']
+
       @delimiter_length = @delimiter.bytesize
       @buffer = BufferedTokenizer.new(@delimiter)
 
@@ -38,77 +37,100 @@ module LogCollector
         begin
           Thread.current['name'] = 'collector'
           Thread.current.priority = 10
-          handle_file(fileconfig['startpos'])
+          process_file(fileconfig['startpos'])
         rescue Exception => e
           $logger.error "exception raised: #{e}"
         end
       end
     end
 
-    def handle_file(startpos)
+    def process_file(startpos)
       if File.exists?(@path)
         open
         if (startpos == -1)
-          $logger.info "file #{@path} opened, start reading from end"
+          $logger.info "#{@path} opened, start reading from end"
           @position = @file.sysseek(0, IO::SEEK_END)
           reset
         else
-          $logger.info "file #{@path} opened, start reading from pos #{startpos}"
+          $logger.info "#{@path} opened, start reading from pos #{startpos}"
           @position = @file.sysseek(startpos, IO::SEEK_SET)
           reset
           read_to_eof
         end
-        # start monitoring the file
-        monitor_file
-      else
-        # watch for the creation of the log file
-        notify = JRubyNotify::Notify.new
-        dir, base = Pathname.new(@path).split
-        notify.watch(dir.to_s, JRubyNotify::FILE_CREATED, false) do |change, paths|
-          $logger.debug "detected '#{change}': paths=#{paths}"
-          if paths[1]==base.to_s
-            $logger.info "#{@path}: created, start reading from beginning"
-            open
-            read_to_eof
-            # stop and release this notifier
-            notify.stop
-            notify = nil
-            # start monitoring the file
-            monitor_file
-          end
-        end
-        notify.run
-        $logger.warning "#{@path}: not found, watching #{dir} for creation of #{base}"
       end
+      # start monitoring the file
+      monitor_file
     end
 
+    # inotify events:
+    # file created:  created, modified
+    # file deleted:  deleted
+    # file modified: modified
+    # file renamed:  renamed
     def monitor_file
-      $logger.debug "start monitoring file #{@path}"
       @monitor = JRubyNotify::Notify.new
-      @monitor.watch(@path, (JRubyNotify::FILE_DELETED | JRubyNotify::FILE_MODIFIED | JRubyNotify::FILE_RENAMED), false) do |change, paths|
-        # TODO(mhy): can we get new notifications while processing the previous one?
+      dir, base = Pathname.new(@path).split.map {|p| p.to_s}
+      @monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
+        $logger.debug "#{@path}: detected '#{change}' #{path}/#{file} (#{newfile})"
+        if file==base
+          case change
+          when :modified
+            # Open the file if it was closed. This can happen if the file was deleted, then closed
+            # after the dead time had passed, and then was written to again.
+            # TODO(mhy): DELETED FILE: uncomment this if implementing a dead time for deleted files.
+            #open if @file.nil? || @file.closed?
 
-        $logger.debug { "#{@path}: detected '#{change}'" }
-        case change
-        when :modified
-          read_to_eof
-        when :deleted, :renamed # file is presumably rotated
-          # check that we have read to EOF before re-opening
-          unless @file.eof?
-            $logger.warning "#{@path}: not at EOF when file was rotated"
+            if @file.size < @position
+              # file has shrunk and is probably truncated
+              $logger.info "#{@path}: #{file} truncated, start reading from beginning"
+              @position = @file.sysseek(0, IO::SEEK_SET)
+              reset
+            end
             read_to_eof
-          end
-          open # re-open the file
-          read_to_eof
-        end
-      end
+          when :renamed
+            # File has presumably been rotated. Note that the writing application may continue to
+            # write for a short while to the old file before it is restarted or notified about the
+            # rotation. This currently solved by waiting for @deadtime to pass before reading one
+            # final time and then closing the file. After that a :created event is expected for when
+            # the log file is re-created. This a design decision to avoid having to monitor both old
+            # and new files simultaneously. With this design the old file will be finalized and
+            # closed before opening the new file.
+            $logger.info "#{@path}: #{file} renamed, finishing #{newfile} before continuing with new file"
+            now = Time.now
+            read_to_eof
+            read_time = Time.now - now
+            # If final reading was very quick (i.e. we were already at eof), wait for the rest of
+            # @deadtime and check one more time for any more data before closing and waiting for the
+            # creation of a new file.
+            if read_time < @deadtime
+              sleep @deadtime-read_time
+              read_to_eof
+            end
+            @file.close
+          when :deleted
+            # We don't really do anything about this. The file can be still be open for writing even
+            # though it has been deleted, and we will receive :modified events if so. If the file is
+            # re-created we will receive a :created event, and we will then close the current file
+            # and open the new one.
+            # TODO(mhy): DELETED FILE: may want to implement a "dead time" interval to close and
+            # release the deleted file.
+            $logger.info "#{@path}: #{file} deleted, file kept open in case more is written to it"
+          when :created
+            $logger.info "#{@path}: created, start reading from beginning"
+            # (re-)open the file
+            open
+            # next event :modified follows immediately
+          end # case change
+        end # if file==base
+      end # @monitor.watch
       @monitor.run
-      $logger.debug "#{@path}: waiting for file modified notification"
+      $logger.info "#{@path}: watching #{dir} for #{base} notifications"
     end
 
     def open
       @file.close if @file && !@file.closed?
       @position = 0
+      @stat = {}
       return unless File.exists?(@path)
       begin
         $logger.debug "#{@path}: opening file"
@@ -117,14 +139,17 @@ module LogCollector
         $logger.warning "#{@path}: file not found: #{e}"
         on_exception(e)
       end
-      @stat = {dev: @file.stat.dev, inode: @file.stat.ino}
+      fstat = @file.stat
+      @stat[:dev], @stat[:ino] = fstat.dev, fstat.ino
+      $logger.debug "#{@path}: stat=#{@stat}"
       reset
     end
 
     def reset
-      $logger.debug "#{@path}: reset (buffer.empty?=#{@buffer.empty?})"
+      $logger.debug { "#{@path}: reset (buffer #{@buffer.empty? ? 'is empty' : 'has data'})" }
       # take care of any unfinished line in the buffer before starting at the new position
-      enqueue_line @buffer.flush unless @buffer.empty?
+      remaining = @buffer.flush.chomp
+      enqueue_line remaining unless remaining.empty?
       # set the current line position
       @linepos = @position
       $logger.info "#{@path}: reset, pos=#{@linepos}"
@@ -136,8 +161,9 @@ module LogCollector
         data = nil
         $logger.debug "#{@path}: reading..."
         begin
-          data = @file.sysread(CHUNKSIZE)
+          data = @file.sysread(@chunksize)
         rescue EOFError, IOError
+          $logger.debug "#{@path}: eof"
           return
         rescue Exception => e
           $logger.error("Error reading: '#{@path}' (#{e})")
@@ -158,7 +184,7 @@ module LogCollector
         enqueue_line line
       end
     end
-    
+
     def enqueue_line(line)
       # Save the position after the current line in the event. When the
       # event has been acked by logstash, this is the position to save in

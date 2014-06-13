@@ -94,7 +94,7 @@ module LogCollector
       # collect the state to save when the msg has been acked
       state_to_save = {}
       @buffer.each do |ev|
-        state_to_save["#{ev.path}//#{ev.dev}//#{ev.inode}"] = ev
+        state_to_save["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
       end
 
       $logger.info { "send_events: ready to send #{msg['n']} events, serial=#{serial}" }
@@ -106,7 +106,7 @@ module LogCollector
         begin
           Thread.current['name'] = 'spooler_send'
           response = nil
-          
+
           loop do
             begin
               rcvmsg = send data, serial
@@ -122,7 +122,7 @@ module LogCollector
               else
                 $logger.error "got unexpected message: #{rcvmsg}"
               end
-              
+
             rescue Exception => e
               $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
               sleep @delay

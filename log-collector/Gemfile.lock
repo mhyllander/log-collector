@@ -6,7 +6,7 @@ GEM
       ffi-rzmq-core (>= 1.0.1)
     ffi-rzmq-core (1.0.3)
       ffi (~> 1.9)
-    jruby-notify (0.4.0.1)
+    jruby-notify (0.4.0.2)
     json (1.8.1-java)
     logger (1.2.8)
 
@@ -15,6 +15,6 @@ PLATFORMS
 
 DEPENDENCIES
   ffi-rzmq
-  jruby-notify (= 0.4.0.1)
+  jruby-notify (= 0.4.0.2)
   json
   logger

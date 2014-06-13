@@ -14,7 +14,7 @@ module LogCollector
       @stat = stat
       @pos = pos
       @fields = fields
-      
+
       @timestamp = Time.now
     end
 
@@ -28,12 +28,12 @@ module LogCollector
       @stat[:dev]
     end
 
-    def inode
-      @stat[:inode]
+    def ino
+      @stat[:ino]
     end
 
     def to_s
-      "LogEvent[#{path}(#{dev}/#{inode}): pos=#{@pos} log=#{@line}]"
+      "LogEvent[#{path}(#{dev}/#{ino}): pos=#{@pos} log=\"#{@line[0..20]}\"...]"
     end
   end
 

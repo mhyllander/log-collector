@@ -12,6 +12,10 @@ module LogCollector
     Default_RecvTries = 3
     Default_RecvTimeout = '10s'
 
+    Default_Delimiter = "\n"
+    Default_DeadTime = '30s'
+    Default_ChunkSize = 128*1024
+
     attr_reader :state
 
     def initialize(config_file)
@@ -31,6 +35,9 @@ module LogCollector
       @config['files'].each do |path,fc|
         fc['startpos'] ||= -1 # default is to start at end of file
         fc['multiline_wait'] = duration_for(fc['multiline_wait'] || Default_MultilineWait)
+        fc['delimiter'] ||= Default_Delimiter
+        fc['deadtime'] = duration_for(fc['deadtime'] || Default_DeadTime)
+        fc['chunksize'] ||= Default_ChunkSize
       end
 
       @state = {}
@@ -41,6 +48,10 @@ module LogCollector
         # Remove old state keys that are not updated anymore, so they are not carried forward.
         # TODO(mhy): remove this some time
         @state.each do |path,state|
+          if state['inode']
+            state['ino'] = state['inode']
+            state.delete 'inode'
+          end
           state.delete 'size'
           state.delete 'mtime'
         end
@@ -57,7 +68,7 @@ module LogCollector
             if saved_state = @state[path]
 
               # is it the same file as before?
-              if file_info[:dev]== saved_state['dev'] && file_info[:inode]==saved_state['inode']
+              if file_info[:dev]== saved_state['dev'] && file_info[:ino]==saved_state['ino']
                 # same file
                 if file_info[:size] < saved_state['pos']
                   # file truncated, start at beginning
@@ -133,8 +144,8 @@ module LogCollector
 
     private
     def get_file_info(f)
-      s= f.is_a?(String) ? File.stat(f) : f.stat
-      {dev: s.dev, inode: s.ino, mtime: s.mtime, size: s.size}
+      s = f.is_a?(String) ? File.stat(f) : f.stat
+      {dev: s.dev, ino: s.ino, mtime: s.mtime, size: s.size}
     end
 
     private

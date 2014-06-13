@@ -19,8 +19,7 @@ Features:
 * The queue load balancer spreads batches over the available logstash indexers.
 
 Log-collector is written for JRuby, and uses the ffi-rzmq and jruby-notify
-gems. Jruby-notify has been enhanced and modified to support 64-bit Linux
-(custom version 0.4.0.1).
+gems. Jruby-notify has been enhanced and modified to support 64-bit Linux.
 
 Currently log-collector used ZeroMQ 4.0.4 and ffi-rzmq 2.0.1. The version
 bundled with logstash 1.4.1 is too old, therefore ffi-rzmq 2.0.1 needs to be
