@@ -26,15 +26,15 @@ module LogCollector
     end
 
     def dev
-      @stat.dev
+      @stat[:dev]
     end
 
-    def inode
-      @stat.ino
+    def ino
+      @stat[:ino]
     end
 
     def to_s
-      "LogEvent[#{path}(#{@stat.dev}/#{@stat.ino}): pos=#{@pos} log=#{@line}]"
+      "LogEvent[#{path}(#{@stat[:dev]}/#{@stat[:ino]}): pos=#{@pos} log=#{@line}]"
     end
   end
 

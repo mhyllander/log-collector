@@ -17,10 +17,8 @@ module LogCollector
         events.each do |ev|
           @state[ev.path] ||= {}
           @state[ev.path]['dev'] = ev.dev
-          @state[ev.path]['inode'] = ev.inode
+          @state[ev.path]['inode'] = ev.ino
           @state[ev.path]['pos'] = ev.pos
-          @state[ev.path]['size'] = ev.stat.size
-          @state[ev.path]['mtime'] = ev.stat.mtime
         end
 
         File.open(@state_file, 'w') { |file| file.write(@state.to_json) }

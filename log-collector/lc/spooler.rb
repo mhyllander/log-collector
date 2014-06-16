@@ -93,7 +93,7 @@ module LogCollector
           # collect the accumulated final state
           final_events = {}
           @sendbuf.each do |ev|
-            final_events["#{ev.path}//#{ev.dev}//#{ev.inode}"] = ev
+            final_events["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
           end
 
           msg = formatted_msg

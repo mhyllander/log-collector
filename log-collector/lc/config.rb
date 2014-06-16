@@ -40,6 +40,11 @@ module LogCollector
         json_state = File.read(state_file)
         @state = JSON.parse(json_state)
 
+        @state.each do |path,stat|
+          stat.delete 'mtime'
+          stat.delete 'size'
+        end
+
         @config['files'].each do |path,fc|
 
           # does the file exist?

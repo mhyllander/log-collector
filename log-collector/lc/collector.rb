@@ -8,6 +8,7 @@ module LogCollector
       @delimiter = @fileconfig['delimiter'] || Default_Delimiter
       @delimiter_length = @delimiter.bytesize
       @buffer = BufferedTokenizer.new(@delimiter)
+      @stat = {}
 
       # if doing multiline processing
       if fileconfig['multiline_re']
@@ -35,6 +36,11 @@ module LogCollector
       # set the current line position
       @linepos = self.position
       $logger.info "#{path}: new pos=#{@linepos}"
+      fstat = @file.stat
+      @stat = {
+        dev: fstat.dev,
+        ino: fstat.ino
+      }
     end
 
     def receive_data(data)
@@ -60,7 +66,7 @@ module LogCollector
       # the state file, so we know where to resume from if a restart
       # occurs.
       @linepos += line.bytesize + @delimiter_length
-      ev = LogEvent.new(path,line,@file.stat,@linepos,@fileconfig['fields'])
+      ev = LogEvent.new(path,line,@stat,@linepos,@fileconfig['fields'])
       $logger.debug "#{path}: enqueue ev=#{ev}"
       @line_queue.push ev
     end
