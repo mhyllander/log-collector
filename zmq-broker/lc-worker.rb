@@ -52,18 +52,20 @@ def run
               $logger.debug "recv queue ping, send pong"
               worker.send_string PPP_PONG
             end
-          elsif msgs.length>=3
+          elsif msgs.length==4
             # msgs[0]: client id
             # msgs[1]: empty delimiter
-            # msgs[2]: request
+            # msgs[2]: serial
+            # msgs[3]: request
             clientid = msgs[0]
-            request = msgs[2]
-            $logger.debug "got msg client=#{clientid} len=#{msgs.length} msgs=#{msgs[0..-2]}"
+            serial = msgs[2]
+            request = msgs[3]
+            $logger.debug "got msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
             sleep 4*rand() # simulate doing dome work
             json = Zlib::Inflate.inflate(request)
             data = JSON.parse(json)
-            $logger.debug "send ACK serial=#{data['serial']} n=#{data['n']}"
-            worker.send_strings [clientid, '', ['ACK',data['serial'],data['n']].to_json]
+            $logger.debug "send ACK serial=#{serial} n=#{data['n']}"
+            worker.send_strings [clientid, '', serial, ['ACK',serial,data['n']].to_json]
           else
             $logger.error "Invalid message: #{msgs}"
           end

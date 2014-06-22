@@ -177,13 +177,15 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                   @logger.debug "[log-collector] recv queue ping, send pong"
                   @zsocket.send_string PPP_PONG
                 end
-              elsif msgs.length>=3
+              elsif msgs.length==4
                 # msgs[0]: client id
                 # msgs[1]: empty delimiter
-                # msgs[2]: request
+                # msgs[2]: serial
+                # msgs[3]: request
                 clientid = msgs[0]
-                request = msgs[2]
-                @logger.debug "[log-collector] got msg client=#{clientid} len=#{msgs.length} msgs=#{msgs[0..-2]}"
+                serial = msgs[2]
+                request = msgs[3]
+                @logger.debug "[log-collector] got msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
 
                 # handle request by feeding the log events to logstash
                 batch = JSON.parse(Zlib::Inflate.inflate(request))
@@ -200,7 +202,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 end
 
                 # send an ACK back to client when finished
-                @zsocket.send_strings [clientid, '', ['ACK',batch['serial'],batch['n']].to_json]
+                @zsocket.send_strings [clientid, '', serial, ['ACK',serial,batch['n']].to_json]
               else
                 @logger.error "[log-collector] Invalid message: #{msgs}"
               end

@@ -10,6 +10,8 @@ PPP_READY = "\x01" # Signals worker is ready
 PPP_PING  = "\x02" # Signals queue ping
 PPP_PONG  = "\x03" # Signals worker pong
 
+KEEP_IN_PROCESSING = 180 # seconds to keep requests in processing, purge after this long
+
 class Worker
   attr_reader :identity
   attr_reader :expiry
@@ -83,6 +85,8 @@ def run
   poll_both.register_readable frontend
 
   workers = WorkerQueue.new
+  requests = OrderedHash.new
+  processing = Hash.new
 
   loop do
     poller = workers.available > 0 ? poll_both : poll_workers
@@ -104,10 +108,10 @@ def run
               $logger.error "Error: Invalid message from worker: #{msgs}" unless [PPP_READY, PPP_PONG].include?(msgs[1])
               $logger.debug "recv worker pong" if msgs[1]==PPP_PONG
               $logger.debug "recv worker ready" if msgs[1]==PPP_READY
-            elsif msgs.length>=4
-              # [workerid, clientid, '', reply]
+            elsif msgs.length==5
+              # [workerid, clientid, '', serial, reply]
               # send reply back to client
-              $logger.info "<-- response worker=#{workerid} to client=#{msgs[1]}"
+              $logger.info "<-- response worker=#{workerid} to client=#{msgs[1]}, serial=#{msgs[3]}"
               frontend.send_strings msgs[1..-1]
             else
               $logger.error "Error: Invalid message from worker: #{msgs}"
@@ -118,14 +122,29 @@ def run
 
           # Read the request from the client and forward it to the LRU worker
           frontend.recv_strings msgs = []
-          $logger.debug { "got msg client=#{msgs[0]} len=#{msgs.length} msgs=#{msgs[0..-2]}" }
-          if msgs.length>=3 && workers.available>0
-            # [ clientid, '', request ]
-            workerid = workers.next
-            $logger.info "--> request client=#{msgs[0]} to worker=#{workerid}"
-            backend.send_strings [workerid] + msgs
+          if msgs.length==4
+            # [ clientid, '', serial, request ]
+            $logger.debug { "got msg client=#{msgs[0]} serial=#{msgs[2]} len=#{msgs.length}" }
+            key = "#{msgs[0]}/#{msgs[2]}"
+            unless processing.include? key
+              $logger.debug { "enqueue request #{key}" }
+              requests[key] = msgs
+            else
+              $logger.debug { "ignore request #{key}, already processing" }
+            end
+          else
+            $logger.error "Error: Invalid message from client: #{msgs}"
           end
 
+        end
+
+        # send enqueued request if worker available
+        if requests.size>0 && workers.available>0
+          workerid = workers.next
+          key, msgs = requests.shift
+          $logger.info "--> request client=#{msgs[0]} to worker=#{workerid}, serial=#{msgs[2]}"
+          backend.send_strings [workerid] + msgs
+          processing[key] = Time.now + KEEP_IN_PROCESSING
         end
 
       end # poller.readables.each
@@ -140,6 +159,12 @@ def run
     end
 
     workers.purge
+
+    # removed expired requests from processing
+    now = Time.now
+    expire = []
+    processing.each {|k,t| expire << k if t < now}
+    expire.each {|k| processing.delete k}
   end
 
   frontend.close

@@ -110,8 +110,9 @@ module LogCollector
           loop do
             begin
               rcvmsg = send data, serial
-              if rcvmsg.length==1
-                response = JSON.parse(rcvmsg[0])
+              if rcvmsg.length==2
+                # [ serial, response ]
+                response = JSON.parse(rcvmsg[1])
                 if response.length==3 && response[0]=='ACK'
                   # exit the loop, save state and terminate the thread when ACK is received
                   break if response[1]==serial
@@ -183,7 +184,7 @@ module LogCollector
     def send(message,serial)
       $logger.info { "--> request client #{@clientid} to worker, serial=#{serial}" }
       @tries.times do |try|
-        unless @socket.send_string(message)
+        unless @socket.send_strings [serial, message]
           client_sock_reopen
           raise 'send failed'
         end
