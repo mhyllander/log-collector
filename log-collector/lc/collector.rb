@@ -56,6 +56,16 @@ module LogCollector
           @position = @file.sysseek(startpos, IO::SEEK_SET)
           reset
           read_to_eof
+          # If we were far behind when starting to read the file, the file
+          # could have been rotated while we were catching up. Therefore we
+          # need to loop here and read the new file until we really catch
+          # up.
+          fstat = File.stat(@path) rescue nil
+          while fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino] || fstat.size<@file.size)
+            open
+            read_to_eof
+            fstat = File.stat(@path) rescue nil
+          end
         end
       end
       # start monitoring the file
@@ -63,7 +73,7 @@ module LogCollector
     end
 
     # inotify events:
-    # file created:  created, modified
+    # file created:  created + modified
     # file deleted:  deleted
     # file modified: modified
     # file renamed:  renamed
@@ -96,9 +106,9 @@ module LogCollector
             # and new files simultaneously. With this design the old file will be finalized and
             # closed before opening the new file.
             $logger.info "#{@path}: #{file} renamed, finishing #{newfile} before continuing with new file"
-            now = Time.now
+            start_read = Time.now
             read_to_eof
-            read_time = Time.now - now
+            read_time = Time.now - start_read
             # If final reading was very quick (i.e. we were already at eof), wait for the rest of
             # @deadtime and check one more time for any more data before closing and waiting for the
             # creation of a new file.
@@ -108,7 +118,7 @@ module LogCollector
             end
             @file.close
           when :deleted
-            # We don't really do anything about this. The file can be still be open for writing even
+            # We don't really do anything about this. The file can still be open for writing even
             # though it has been deleted, and we will receive :modified events if so. If the file is
             # re-created we will receive a :created event, and we will then close the current file
             # and open the new one.

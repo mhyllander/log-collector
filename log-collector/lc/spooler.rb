@@ -63,7 +63,9 @@ module LogCollector
     def schedule_flush_buffer
       $logger.debug "schedule flush timer"
       # cancel scheduled flush
-      cancel_flush_buffer
+      @flush_mutex.synchronize do
+        cancel_flush_buffer
+      end
       # schedule new flush
       @flush_thread = Thread.new do
         begin
