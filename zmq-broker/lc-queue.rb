@@ -10,8 +10,6 @@ PPP_READY = "\x01" # Signals worker is ready
 PPP_PING  = "\x02" # Signals queue ping
 PPP_PONG  = "\x03" # Signals worker pong
 
-KEEP_IN_PROCESSING = 180 # seconds to keep requests in processing, purge after this long
-
 class Worker
   attr_reader :identity
   attr_reader :expiry
@@ -130,7 +128,7 @@ def run
               $logger.debug { "enqueue request #{key}" }
               requests[key] = msgs
             else
-              $logger.debug { "ignore request #{key}, already processing" }
+              $logger.info { "ignore request #{key}, already processing" }
             end
           else
             $logger.error "Error: Invalid message from client: #{msgs}"
@@ -144,7 +142,7 @@ def run
           key, msgs = requests.shift
           $logger.info "--> request client=#{msgs[0]} to worker=#{workerid}, serial=#{msgs[2]}"
           backend.send_strings [workerid] + msgs
-          processing[key] = Time.now + KEEP_IN_PROCESSING
+          processing[key] = Time.now + $options[:processing_time]
         end
 
       end # poller.readables.each
@@ -175,6 +173,7 @@ end
 $options = {
   frontend: 'tcp://*:5559',
   backend: 'tcp://*:5560',
+  processing_time: 120,
   ping_interval: 1,
   ping_liveness: 3,
   syslog: false,
@@ -189,6 +188,9 @@ parser = OptionParser.new do |opts|
   end
   opts.on("-b", "--backend ZMQADDR", "The backend address to bind to (default=#{$options[:backend]}).") do |v|
     $options[:backend] = v
+  end
+  opts.on("-p", "--processing_purge NUMBER", Integer, "The max processing time in seconds (default=#{$options[:processing_time]}).") do |v|
+    $options[:processing_time] = v
   end
   opts.on("-i", "--pinginterval NUMBER", Integer, "The ping interval in seconds (default=#{$options[:ping_interval]}).") do |v|
     $options[:ping_interval] = v
