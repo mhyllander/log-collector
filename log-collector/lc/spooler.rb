@@ -27,11 +27,13 @@ module LogCollector
 
       @spool_thread = Thread.new do
         Thread.current['name'] = 'spooler'
-        begin
-          client_sock
-          process_events
-        rescue Exception => e
-          $logger.error "exception raised: #{e}"
+        loop do
+          begin
+            client_sock
+            process_events
+          rescue Exception => e
+            on_exception e, false
+          end
         end
       end
 
@@ -63,9 +65,7 @@ module LogCollector
     def schedule_flush_buffer
       $logger.debug "schedule flush timer"
       # cancel scheduled flush
-      @flush_mutex.synchronize do
-        cancel_flush_buffer
-      end
+      cancel_flush_buffer
       # schedule new flush
       @flush_thread = Thread.new do
         begin
@@ -76,9 +76,10 @@ module LogCollector
             send_events
           end
         rescue Exception => e
-          $logger.error "exception raised: #{e}\n#{e.backtrace}"
+          on_exception e
+        ensure
+          @flush_mutex.synchronize { @flush_thread = nil }
         end
-        @flush_thread = nil
       end
     end
 
@@ -137,7 +138,7 @@ module LogCollector
           # save state
           @state_mgr.update_state state_update
         rescue Exception => e
-          $logger.error "exception raised: #{e}"
+          on_exception e
         end
       end
 
@@ -203,6 +204,13 @@ module LogCollector
       raise 'no response from worker'
     end
 
+    def on_exception(exception,reraise=true)
+      begin
+        $logger.error "Exception raised: #{exception.inspect}. Using default handler in #{self.class.name}. Backtrace: #{exception.backtrace}"
+      rescue
+      end
+      raise exception if reraise
+    end
   end # class Spooler
 
 end # module LogCollector
