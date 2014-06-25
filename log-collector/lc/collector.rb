@@ -36,7 +36,7 @@ module LogCollector
 
       # intitialize the filetail, this will also set the current position
       @input_thread = Thread.new do
-        Thread.current['name'] = 'collector'
+        Thread.current['name'] = 'collector/init'
         Thread.current.priority = 10
         begin
           process_file(fileconfig['startpos'])
@@ -84,6 +84,7 @@ module LogCollector
       @monitor = JRubyNotify::Notify.new
       dir, base = Pathname.new(@path).split.map {|p| p.to_s}
       @monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
+        Thread.current['name'] = 'collector/monitor'
         begin
           $logger.debug "#{@path}: detected '#{change}' #{path}/#{file} (#{newfile})"
           if file==base

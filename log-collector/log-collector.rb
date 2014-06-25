@@ -21,6 +21,8 @@ require 'lc/spooler'
 require 'lc/state'
 require 'lc/buftok'
 
+Thread.current['name'] = 'main'
+
 options = {
   configfile: 'log-collector.conf',
   syslog: false,
@@ -61,6 +63,15 @@ spooler = LogCollector::Spooler.new(config,spool_queue,state_mgr)
 collectors = []
 config.files.each do |path,fc|
   collectors << LogCollector::Collector.new(path,fc,spool_queue)
+end
+
+Signal.trap("HUP") do
+  $logger.info "caught HUP signal, ignoring"
+end
+
+Signal.trap("TERM") do
+  $logger.info "caught TERM signal, notifying spooler"
+  spooler.terminate
 end
 
 # just hang in here and let the threads do the work

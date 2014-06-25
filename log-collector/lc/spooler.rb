@@ -13,6 +13,7 @@ module LogCollector
       @flush_size = config.flush_size
       @flush_mutex = Mutex.new
       @flush_thread = nil
+      @send_mutex = Mutex.new
       @send_thread = nil
 
       @buffer = []
@@ -39,6 +40,18 @@ module LogCollector
 
       at_exit do
         @socket.close
+      end
+    end
+
+    # Terminate the spooler by stopping the spool_thread from sending another batch of events (the mutex),
+    # then waiting for any send_thread to receive an ACK for its current request, and finally terminating
+    # the spool_thread which will cause the application to exit since it is waiting on spool_thread.
+    def terminate
+      @send_mutex.synchronize do
+        $logger.info "wait for an ACK for any outstanding request"
+        @send_thread.join if @send_thread
+        $logger.info "terminating spooler"
+        @spool_thread.terminate
       end
     end
 
@@ -105,40 +118,42 @@ module LogCollector
       # wait for running thread to finish
       @send_thread.join if @send_thread
 
-      @send_thread = Thread.new(cmsg,serial,state_to_save.values) do |data,serial,state_update|
-        begin
-          Thread.current['name'] = 'spooler_send'
-          response = nil
+      @send_mutex.synchronize do
+        @send_thread = Thread.new(cmsg,serial,state_to_save.values) do |data,serial,state_update|
+          begin
+            Thread.current['name'] = 'spooler_send'
+            response = nil
 
-          loop do
-            begin
-              rcvmsg = send data, serial
-              if rcvmsg.length==2
-                # [ serial, response ]
-                response = JSON.parse(rcvmsg[1])
-                if response.length==3 && response[0]=='ACK'
-                  # exit the loop, save state and terminate the thread when ACK is received
-                  break if response[1]==serial
-                  $logger.error "got ACK for wrong serial: expecting #{serial} received #{response[1]}"
+            loop do
+              begin
+                rcvmsg = send data, serial
+                if rcvmsg.length==2
+                  # [ serial, response ]
+                  response = JSON.parse(rcvmsg[1])
+                  if response.length==3 && response[0]=='ACK'
+                    # exit the loop, save state and terminate the thread when ACK is received
+                    break if response[1]==serial
+                    $logger.error "got ACK for wrong serial: expecting #{serial} received #{response[1]}"
+                  else
+                    $logger.error "got unexpected message: #{rcvmsg}"
+                  end
                 else
                   $logger.error "got unexpected message: #{rcvmsg}"
                 end
-              else
-                $logger.error "got unexpected message: #{rcvmsg}"
+
+              rescue Exception => e
+                $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
+                sleep @delay
               end
-
-            rescue Exception => e
-              $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
-              sleep @delay
             end
+
+            $logger.info { "<-- response from worker: #{response}" }
+
+            # save state
+            @state_mgr.update_state state_update
+          rescue Exception => e
+            on_exception e
           end
-
-          $logger.info { "<-- response from worker: #{response}" }
-
-          # save state
-          @state_mgr.update_state state_update
-        rescue Exception => e
-          on_exception e
         end
       end
 
