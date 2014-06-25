@@ -12,6 +12,8 @@ module LogCollector
       @deadtime = fileconfig['deadtime']
       @delimiter = fileconfig['delimiter']
       @chunksize = fileconfig['chunksize']
+      @select_re = Regexp.new(fileconfig['select_re']) if fileconfig['select_re']
+      @exclude_re = Regexp.new(fileconfig['exclude_re']) if fileconfig['exclude_re']
 
       @delimiter_length = @delimiter.bytesize
       @buffer = BufferedTokenizer.new(@delimiter)
@@ -191,6 +193,7 @@ module LogCollector
 
     def receive_data(data)
       @buffer.extract(data).each do |line|
+        next if @select_re && !@select_re.match(line) || @exclude_re && line @exclude_re.match(line)
         enqueue_line line
       end
     end

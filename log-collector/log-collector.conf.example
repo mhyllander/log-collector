@@ -18,13 +18,16 @@
 	"type" : "hive-services"
       },
       "startpos" : 0,			      # optional, default EOF
-      "multiline_re" : "^\\s+",		      # optional
+      "multiline_re" : "^\\s+",		      # optional regex
+      "multiline_invert" : true,              # optional, default false
       "multiline_wait" : "10s"		      # optional, default 2s
     },
     "/var/log/haproxy.log" : {
       "fields" : {			      # optional
 	"type" : "hive-services-haproxy"
       },
+      "select_re" : "ERROR",                  # optional regex
+      "exclude_re" : "DEBUG",                 # optional regex
       "chunksize" : 65536,		      # optional, default 128kb
       "delimiter" : "\r\n",		      # optional, default \n
       "deadtime" : "60s"		      # optional, default 30s

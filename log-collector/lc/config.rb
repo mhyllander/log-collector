@@ -34,6 +34,7 @@ module LogCollector
 
       @config['files'].each do |path,fc|
         fc['startpos'] ||= -1 # default is to start at end of file
+        fc['multiline_invert'] ||= false
         fc['multiline_wait'] = duration_for(fc['multiline_wait'] || Default_MultilineWait)
         fc['delimiter'] ||= Default_Delimiter
         fc['deadtime'] = duration_for(fc['deadtime'] || Default_DeadTime)

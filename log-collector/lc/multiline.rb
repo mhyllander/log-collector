@@ -9,7 +9,8 @@ module LogCollector
       @in_queue = in_queue
       @out_queue = out_queue
 
-      @multiline_re = fileconfig['multiline_re']
+      @multiline_re = Regexp.new(fileconfig['multiline_re'])
+      @multiline_invert = fileconfig['multiline_invert']
       @multiline_wait = fileconfig['multiline_wait']
 
       @held_ev = nil
@@ -48,17 +49,20 @@ module LogCollector
     end
 
     def process_line(ev)
-      if ev.line =~ /#{@multiline_re}/
+      # Lines the match @multiline_re are continuation lines that will be appended to the previous line.
+      # If @multiline_invert is true, then lines that don't match @multiline_re are continuation lines.
+      # The "!= @multiline_invert" clause is a clever/sneaky way of inverting the result of the match.
+      if !@multiline_re.match(ev.line).nil? != @multiline_invert
         if @held_ev.nil?
           @held_ev = ev
-          $logger.debug "multiline(missing previous): @held_ev=#{@held_ev}"
+          $logger.debug { "multiline(missing previous): @held_ev=#{@held_ev}" }
         else
           @held_ev.append ev
-          $logger.debug "multiline(append): @held_ev=#{@held_ev}"
+          $logger.debug { "multiline(append): @held_ev=#{@held_ev}" }
         end
       else
         # not a continuation line, so send any held event
-        $logger.debug("multiline(enqueue held): @held_ev=#{@held_ev}") if @held_ev
+        $logger.debug { "multiline(enqueue held): @held_ev=#{@held_ev}" } if @held_ev
         @out_queue.push(@held_ev) if @held_ev
         @held_ev = ev
       end
@@ -72,7 +76,7 @@ module LogCollector
         # check if no new events were received while we slept
         if counter == @ev_counter && @held_ev
           @flush_mutex.synchronize do
-            $logger.debug("multiline(flush held): @held_ev=#{@held_ev}")
+            $logger.debug { "multiline(flush held): @held_ev=#{@held_ev}" }
             @out_queue.push(@held_ev)
             @held_ev = nil
           end
