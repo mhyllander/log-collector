@@ -3,8 +3,6 @@ module LogCollector
   class Multiline
     include ErrorUtils
 
-    attr_reader :filter_thread
-
     def initialize(fileconfig,in_queue,out_queue)
       @fileconfig = fileconfig
       @in_queue = in_queue

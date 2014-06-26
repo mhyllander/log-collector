@@ -57,36 +57,39 @@ $logger = LogCollector::Logger.new options[:syslog], parser.program_name, ($DEBU
 $logger.debug("Debugging #{$logger.id}...")
 
 config = LogCollector::Config.new(options[:configfile])
-
 spool_queue = SizedQueue.new(config.queue_size)
-
-state_mgr = LogCollector::State.new(config)
-spooler = LogCollector::Spooler.new(config,spool_queue,state_mgr)
-
-collectors = []
+@spooler = LogCollector::Spooler.new(config,spool_queue)
+@collectors = []
 config.files.each do |path,fc|
-  collectors << LogCollector::Collector.new(path,fc,spool_queue)
+  @collectors << LogCollector::Collector.new(path,fc,spool_queue)
+end
+
+def shutdown
+  @collectors.each do |c|
+    begin
+      c.terminate
+    rescue Exception => e
+      on_exception e, false
+    end
+  end
+  begin
+    @spooler.terminate
+  rescue Exception => e
+    on_exception e, false
+  end
 end
 
 Signal.trap("HUP") do
   $logger.info "caught HUP signal, ignoring"
 end
 Signal.trap("TERM") do
-  $logger.info "caught TERM signal, notifying spooler"
-  spooler.terminate
-end
-Signal.trap("QUIT") do
-  $logger.info "caught QUIT signal, notifying spooler"
-  spooler.terminate
-end
-Signal.trap("ABRT") do
-  $logger.info "caught ABRT signal, notifying spooler"
-  spooler.terminate
+  $logger.info "caught TERM signal, shutting down"
+  shutdown
 end
 Signal.trap("INT") do
-  $logger.info "caught INT signal, notifying spooler"
-  spooler.terminate
+  $logger.info "caught INT signal, shutting down"
+  shutdown
 end
 
 # just hang in here and let the threads do the work
-spooler.spool_thread.join
+@spooler.spool_thread.join

@@ -5,11 +5,12 @@ module LogCollector
 
     attr_reader :spool_thread
 
-    def initialize(config,spool_queue,state_mgr)
+    def initialize(config,spool_queue)
       @hostname = config.hostname
       @servers = config.servers
       @spool_queue = spool_queue
-      @state_mgr = state_mgr
+
+      @state_mgr = State.new(config)
 
       @flush_interval = config.flush_interval
       @flush_size = config.flush_size
@@ -45,7 +46,6 @@ module LogCollector
     def terminate
       # set shutdown state which will stop new requests
       @shutdown = true
-      $logger.info "shutting down"
       # wait for outstanding ACK and then terminate the spool thread
       @send_mutex.synchronize do
         $logger.info "wait for an ACK for any outstanding request"

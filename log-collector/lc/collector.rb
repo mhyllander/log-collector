@@ -5,9 +5,6 @@ module LogCollector
 
     FORCE_ENCODING = !! (defined? Encoding)
 
-    attr_reader :input_thread
-    attr_reader :monitor
-
     def initialize(path,fileconfig,spool_queue)
       @path = path
       @fileconfig = fileconfig
@@ -45,8 +42,14 @@ module LogCollector
         rescue Exception => e
           on_exception e
         end
-        $logger.debug "#{@path}: terminating input thread, inotify watcher thread taking over"
+        $logger.debug "#{@path}: input thread terminating, monitor thread taking over"
       end
+    end
+
+    def terminate
+      $logger.info "terminating collector for #{@path}"
+      @input_thread.terminate
+      @monitor.stop if @monitor
     end
 
     def process_file(startpos)
