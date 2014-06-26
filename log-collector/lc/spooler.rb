@@ -1,6 +1,8 @@
 module LogCollector
 
   class Spooler
+    include ErrorUtils
+
     attr_reader :spool_thread
 
     def initialize(config,spool_queue,state_mgr)
@@ -16,6 +18,7 @@ module LogCollector
       @send_mutex = Mutex.new
       @send_thread = nil
 
+      @shutdown = false
       @buffer = []
 
       @delay = config.send_error_delay
@@ -40,6 +43,7 @@ module LogCollector
 
       at_exit do
         @socket.close
+        @zmq_context.terminate
       end
     end
 
@@ -47,6 +51,10 @@ module LogCollector
     # then waiting for any send_thread to receive an ACK for its current request, and finally terminating
     # the spool_thread which will cause the application to exit since it is waiting on spool_thread.
     def terminate
+      # set shutdown state which will stop new requests
+      @shutdown = true
+      $logger.info "shutting down"
+      # wait for outstanding ACK and then terminate the spool thread
       @send_mutex.synchronize do
         $logger.info "wait for an ACK for any outstanding request"
         @send_thread.join if @send_thread
@@ -68,21 +76,21 @@ module LogCollector
     def process_event(ev)
       @buffer << ev
       if @buffer.size==1
-        schedule_flush_buffer
+        schedule_flush
       elsif @buffer.size >= @flush_size
-        cancel_flush_buffer
+        cancel_flush
         send_events
       end
     end
 
-    def schedule_flush_buffer
+    def schedule_flush
       $logger.debug "schedule flush timer"
       # cancel scheduled flush
-      cancel_flush_buffer
+      cancel_flush
       # schedule new flush
       @flush_thread = Thread.new do
         begin
-          Thread.current['name'] = 'spooler_flush'
+          Thread.current['name'] = 'spooler/flush'
           sleep @flush_interval
           @flush_mutex.synchronize do
             $logger.debug "flush spool buffer"
@@ -96,11 +104,13 @@ module LogCollector
       end
     end
 
-    def cancel_flush_buffer
-      @flush_thread.kill if @flush_thread
+    def cancel_flush
+      @flush_thread.terminate if @flush_thread
     end
 
     def send_events
+      return if @buffer.empty?
+
       # format the message to send
       msg = formatted_msg
       serial = Time.now.to_f.to_s
@@ -113,15 +123,21 @@ module LogCollector
         state_to_save["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
       end
 
+      # empty the buffer before returning to processing the spool_queue
+      @buffer.clear
+
       $logger.info { "send_events: ready to send #{msg['n']} events, serial=#{serial}" }
 
       # wait for running thread to finish
       @send_thread.join if @send_thread
 
       @send_mutex.synchronize do
+        # don't schedule a new send request if shutting down
+        return if @shutdown
+        # schedule a new send request
         @send_thread = Thread.new(cmsg,serial,state_to_save.values) do |data,serial,state_update|
           begin
-            Thread.current['name'] = 'spooler_send'
+            Thread.current['name'] = 'spooler/send'
             response = nil
 
             loop do
@@ -156,9 +172,6 @@ module LogCollector
           end
         end
       end
-
-      # empty the buffer before returning to processing the spool_queue
-      @buffer = []
     end
 
     def formatted_msg
@@ -219,13 +232,6 @@ module LogCollector
       raise 'no response from worker'
     end
 
-    def on_exception(exception,reraise=true)
-      begin
-        $logger.error "Exception raised: #{exception.inspect}. Using default handler in #{self.class.name}. Backtrace: #{exception.backtrace}"
-      rescue
-      end
-      raise exception if reraise
-    end
   end # class Spooler
 
 end # module LogCollector

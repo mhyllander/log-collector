@@ -1,6 +1,7 @@
 module LogCollector
 
   class Multiline
+    include ErrorUtils
 
     attr_reader :filter_thread
 
@@ -30,7 +31,7 @@ module LogCollector
       end
 
       @flush_thread = Thread.new do
-        Thread.current['name'] = 'filter_flush'
+        Thread.current['name'] = 'filter/flush'
         loop do
           begin
             schedule_flush_held_ev
@@ -88,13 +89,6 @@ module LogCollector
       end
     end
 
-    def on_exception(exception,reraise=true)
-      begin
-        $logger.error "Exception raised: #{exception.inspect}. Using default handler in #{self.class.name}. Backtrace: #{exception.backtrace}"
-      rescue
-      end
-      raise exception if reraise
-    end
   end # class Multiline
   
 end # module LogCollector

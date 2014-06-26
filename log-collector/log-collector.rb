@@ -13,6 +13,7 @@ require 'thread'
 require 'jruby-notify'
 require 'pathname'
 
+require 'lc/error_utils.rb'
 require 'lc/logger'
 require 'lc/config'
 require 'lc/logevent'
@@ -20,6 +21,8 @@ require 'lc/collector'
 require 'lc/spooler'
 require 'lc/state'
 require 'lc/buftok'
+
+include LogCollector::ErrorUtils
 
 Thread.current['name'] = 'main'
 
@@ -68,9 +71,20 @@ end
 Signal.trap("HUP") do
   $logger.info "caught HUP signal, ignoring"
 end
-
 Signal.trap("TERM") do
   $logger.info "caught TERM signal, notifying spooler"
+  spooler.terminate
+end
+Signal.trap("QUIT") do
+  $logger.info "caught QUIT signal, notifying spooler"
+  spooler.terminate
+end
+Signal.trap("ABRT") do
+  $logger.info "caught ABRT signal, notifying spooler"
+  spooler.terminate
+end
+Signal.trap("INT") do
+  $logger.info "caught INT signal, notifying spooler"
   spooler.terminate
 end
 

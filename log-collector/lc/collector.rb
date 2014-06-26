@@ -1,6 +1,8 @@
 module LogCollector
 
   class Collector
+    include ErrorUtils
+
     FORCE_ENCODING = !! (defined? Encoding)
 
     attr_reader :input_thread
@@ -85,6 +87,7 @@ module LogCollector
       dir, base = Pathname.new(@path).split.map {|p| p.to_s}
       @monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
         Thread.current['name'] = 'collector/monitor'
+        Thread.current.priority = 10
         begin
           $logger.debug "#{@path}: detected '#{change}' #{path}/#{file} (#{newfile})"
           if file==base
@@ -215,13 +218,6 @@ module LogCollector
       @line_queue.push ev
     end
 
-    def on_exception(exception,reraise=true)
-      begin
-        $logger.error "Exception raised: #{exception.inspect}. Using default handler in #{self.class.name}. Backtrace: #{exception.backtrace}"
-      rescue
-      end
-      raise exception if reraise
-    end
   end # class Collector
 
 end # module LogCollector

@@ -1,6 +1,7 @@
 module LogCollector
 
   class State
+    include ErrorUtils
 
     def initialize(config)
       @state = config.state
@@ -18,9 +19,13 @@ module LogCollector
         @state[ev.path]['pos'] = ev.pos
       end
 
-      File.open(@state_file_new, 'w') { |file| file.write(@state.to_json) }
-      File.rename @state_file_new, @state_file
-      $logger.info "saved state=#{@state}"
+      begin
+        File.open(@state_file_new, 'w') { |file| file.write(@state.to_json) }
+        File.rename @state_file_new, @state_file
+        $logger.info "saved state=#{@state}"
+      rescue Exception=>e
+        on_exception e, false
+      end
     end
 
   end # class State
