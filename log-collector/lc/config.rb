@@ -9,8 +9,8 @@ module LogCollector
     Default_MultilineWait = '2s'
 
     Default_SendErrorDelay = '1s'
-    Default_RecvTries = 3
-    Default_RecvTimeout = '10s'
+    Default_RecvTries = 2
+    Default_RecvTimeout = '15s'
 
     Default_Delimiter = "\n"
     Default_DeadTime = '30s'
