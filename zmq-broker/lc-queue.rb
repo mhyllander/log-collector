@@ -84,7 +84,8 @@ def run
 
   workers = WorkerQueue.new
   requests = OrderedHash.new
-  processing = Hash.new
+  processing = {}
+  responses = {}
 
   loop do
     poller = workers.available > 0 ? poll_both : poll_workers
@@ -111,6 +112,9 @@ def run
               # send reply back to client
               $logger.info "<-- response worker=#{workerid} to client=#{msgs[1]}, serial=#{msgs[3]}"
               frontend.send_strings msgs[1..-1]
+              # cache the response for a while in case the client re-sends the request
+              key = "#{msgs[1]}/#{msgs[3]}"
+              responses[key] = [ msgs, Time.now + $options[:response_time] ]
             else
               $logger.error "Error: Invalid message from worker: #{msgs}"
             end
@@ -124,11 +128,21 @@ def run
             # [ clientid, '', serial, request ]
             $logger.debug { "got msg client=#{msgs[0]} serial=#{msgs[2]} len=#{msgs.length}" }
             key = "#{msgs[0]}/#{msgs[2]}"
-            unless processing.include? key
+            if r = responses[key]
+              # This request has already been processed by a worker. Apparently the client has not
+              # seen the result, since it is re-sending the request. Now we can simply resend the
+              # reply to the client.
+              resp = r[0]
+              $logger.info "<-- re-send cached response worker=#{resp[0]} to client=#{resp[1]}, serial=#{resp[3]}"
+              frontend.send_strings resp[1..-1]
+            elsif processing.include? key
+              # This request has already been sent to a worker for processing. Just continue waiting for the worker's reponse.
+              $logger.info { "ignore request #{key}, already processing" }
+            else
+              # Enqueue the request for processing. The request might already be in the queue, if so
+              # it will just retain its position.
               $logger.debug { "enqueue request #{key}" }
               requests[key] = msgs
-            else
-              $logger.info { "ignore request #{key}, already processing" }
             end
           else
             $logger.error "Error: Invalid message from client: #{msgs}"
@@ -158,11 +172,15 @@ def run
 
     workers.purge
 
-    # removed expired requests from processing
     now = Time.now
+    # removed expired requests from processing
     expire = []
     processing.each {|k,t| expire << k if t < now}
     expire.each {|k| processing.delete k}
+    # removed expired requests from responses
+    expire = []
+    responses.each {|k,r| expire << k if r[1] < now}
+    expire.each {|k| responses.delete k}
   end
 
   frontend.close
@@ -174,6 +192,7 @@ $options = {
   frontend: 'tcp://*:5559',
   backend: 'tcp://*:5560',
   processing_time: 120,
+  response_time: 240,
   ping_interval: 1,
   ping_liveness: 3,
   syslog: false,
@@ -189,8 +208,11 @@ parser = OptionParser.new do |opts|
   opts.on("-b", "--backend ZMQADDR", "The backend address to bind to (default=#{$options[:backend]}).") do |v|
     $options[:backend] = v
   end
-  opts.on("-p", "--processing_purge NUMBER", Integer, "The max processing time in seconds (default=#{$options[:processing_time]}).") do |v|
+  opts.on("-p", "--processing_purge NUMBER", Integer, "The processing time in seconds (default=#{$options[:processing_time]}).") do |v|
     $options[:processing_time] = v
+  end
+  opts.on("-r", "--response_purge NUMBER", Integer, "The response cache time in seconds (default=#{$options[:response_time]}).") do |v|
+    $options[:response_time] = v
   end
   opts.on("-i", "--pinginterval NUMBER", Integer, "The ping interval in seconds (default=#{$options[:ping_interval]}).") do |v|
     $options[:ping_interval] = v
