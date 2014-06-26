@@ -15,7 +15,6 @@ module LogCollector
       @multiline_wait = fileconfig['multiline_wait']
 
       @held_ev = nil
-      @ev_counter = 0
       @flush_mutex = Mutex.new
       @flush_thread = nil
 
@@ -46,8 +45,8 @@ module LogCollector
       loop do
         $logger.debug "waiting on queue"
         ev = @in_queue.pop
-        @ev_counter += 1
         @flush_mutex.synchronize do
+          reset_flush
           process_line ev
         end
       end
@@ -75,18 +74,22 @@ module LogCollector
 
     def schedule_flush_held_ev
       loop do
-        # save current counter before sleeping
-        counter = @ev_counter
-        sleep @multiline_wait
-        # check if no new events were received while we slept
-        if counter == @ev_counter && @held_ev
-          @flush_mutex.synchronize do
+        # loop until a full @multiline_wait has been slept
+        slept = sleep(@multiline_wait) until slept==@multiline_wait
+        # flush any held event
+        @flush_mutex.synchronize do
+          if @held_ev
             $logger.debug { "multiline(flush held): @held_ev=#{@held_ev}" }
             @out_queue.push(@held_ev)
             @held_ev = nil
           end
         end
       end
+    end
+
+    # restart the flush timer
+    def reset_flush
+      @flush_thread.wakeup
     end
 
   end # class Multiline

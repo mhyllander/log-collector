@@ -20,6 +20,7 @@ module LogCollector
 
       @shutdown = false
       @buffer = []
+      @state_to_save = {}
 
       @delay = config.send_error_delay
       @tries = config.recv_tries
@@ -29,17 +30,8 @@ module LogCollector
       @poller = ZMQ::Poller.new
       @clientid = "C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
 
-      @spool_thread = Thread.new do
-        Thread.current['name'] = 'spooler'
-        loop do
-          begin
-            client_sock
-            process_events
-          rescue Exception => e
-            on_exception e, false
-          end
-        end
-      end
+      schedule_process_events
+      schedule_flush
 
       at_exit do
         @socket.close
@@ -63,6 +55,21 @@ module LogCollector
       end
     end
 
+    def schedule_process_events
+      $logger.debug "schedule process events"
+      @spool_thread = Thread.new do
+        Thread.current['name'] = 'spooler'
+        loop do
+          begin
+            client_sock
+            process_events
+          rescue Exception => e
+            on_exception e, false
+          end
+        end
+      end
+    end
+
     def process_events
       loop do
         $logger.debug "waiting on queue"
@@ -75,37 +82,38 @@ module LogCollector
 
     def process_event(ev)
       @buffer << ev
-      if @buffer.size==1
-        schedule_flush
-      elsif @buffer.size >= @flush_size
-        cancel_flush
+      @state_to_save["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
+      if @buffer.size >= @flush_size
+        reset_flush
         send_events
       end
     end
 
     def schedule_flush
       $logger.debug "schedule flush timer"
-      # cancel scheduled flush
-      cancel_flush
-      # schedule new flush
       @flush_thread = Thread.new do
-        begin
-          Thread.current['name'] = 'spooler/flush'
-          sleep @flush_interval
-          @flush_mutex.synchronize do
-            $logger.debug "flush spool buffer"
-            send_events
+        Thread.current['name'] = 'spooler/flush'
+        loop do
+          begin
+            # loop until a full @flush_interval has been slept
+            slept = sleep(@flush_interval) until slept==@flush_interval
+            # flush any buffered events
+            @flush_mutex.synchronize do
+              $logger.debug "flush spool buffer"
+              send_events
+            end
+          rescue Exception => e
+            on_exception e, false
           end
-        rescue Exception => e
-          on_exception e
-        ensure
-          @flush_mutex.synchronize { @flush_thread = nil }
         end
-      end
+      end # loop
     end
 
-    def cancel_flush
-      @flush_thread.terminate if @flush_thread
+    # This allows us to restart the flush timer by calling wakeup on the
+    # thread. The sleep starts over until it has slept a full
+    # @flush_interval.
+    def reset_flush
+      @flush_thread.wakeup
     end
 
     def send_events
@@ -115,16 +123,12 @@ module LogCollector
       msg = formatted_msg
       serial = Time.now.to_f.to_s
       msg['serial'] = serial
-      cmsg = Zlib::Deflate.deflate(msg.to_json)
+      data = Zlib::Deflate.deflate(msg.to_json)
+      state_update = @state_to_save.values
 
-      # collect the state to save when the msg has been acked
-      state_to_save = {}
-      @buffer.each do |ev|
-        state_to_save["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
-      end
-
-      # empty the buffer before returning to processing the spool_queue
+      # empty the buffers before returning to processing the spool_queue
       @buffer.clear
+      @state_to_save.clear
 
       $logger.info { "send_events: ready to send #{msg['n']} events, serial=#{serial}" }
 
@@ -135,7 +139,7 @@ module LogCollector
         # don't schedule a new send request if shutting down
         return if @shutdown
         # schedule a new send request
-        @send_thread = Thread.new(cmsg,serial,state_to_save.values) do |data,serial,state_update|
+        @send_thread = Thread.new(data,serial,state_update) do |data,serial,state_update|
           begin
             Thread.current['name'] = 'spooler/send'
             response = nil
