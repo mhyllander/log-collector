@@ -20,9 +20,10 @@ module LogCollector
       end
 
       begin
-        File.open(@state_file_new, 'w') { |file| file.write(@state.to_json) }
+        json = @state.to_json
+        File.open(@state_file_new, 'w') { |file| file.write(json) }
         File.rename @state_file_new, @state_file
-        $logger.info "saved state=#{@state}"
+        $logger.info "saved state=#{json}"
       rescue Exception=>e
         on_exception e, false
       end

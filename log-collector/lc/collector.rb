@@ -64,15 +64,20 @@ module LogCollector
           @position = @file.sysseek(startpos, IO::SEEK_SET)
           reset
           read_to_eof
-          # If we were far behind when starting to read the file, the file
-          # could have been rotated while we were catching up. Therefore we
-          # need to loop here and read the new file until we really catch
-          # up.
-          fstat = File.stat(@path) rescue nil
-          while fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino] || fstat.size<@file.size)
+          # If we were far behind when starting to read the file, the file could have been rotated
+          # while we were catching up. Therefore we need to loop here and read the new file until we
+          # really catch up.
+          # Note that @file.stat returns data about @path, not about the currently open file! If the
+          # file has been replaced by a new one, then we will get stat for the new file. fstat.size
+          # will be the size of the new file, while @file.size is the size of the currently open
+          # file.
+          # Check if it's a different file, or if it has shrunk (been truncated).
+          fstat = @file.stat rescue nil
+          while fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino]) || @file.size < @position
+            $logger.info "#{@path}: file appears to have been rotated while catching up"
             open
             read_to_eof
-            fstat = File.stat(@path) rescue nil
+            fstat = @file.stat rescue nil
           end
         end
       end
