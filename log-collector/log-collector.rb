@@ -19,6 +19,7 @@ require 'lc/config'
 require 'lc/logevent'
 require 'lc/collector'
 require 'lc/spooler'
+require 'lc/sender'
 require 'lc/state'
 require 'lc/buftok'
 
@@ -57,11 +58,13 @@ $logger = LogCollector::Logger.new options[:syslog], parser.program_name, ($DEBU
 $logger.debug("Debugging #{$logger.id}...")
 
 config = LogCollector::Config.new(options[:configfile])
-spool_queue = SizedQueue.new(config.queue_size)
-@spooler = LogCollector::Spooler.new(config,spool_queue)
+event_queue = SizedQueue.new(config.queue_size)
+request_queue = SizedQueue.new(1)
+@sender = LogCollector::Sender.new(config,request_queue)
+@spooler = LogCollector::Spooler.new(config,event_queue,request_queue)
 @collectors = []
 config.files.each do |path,fc|
-  @collectors << LogCollector::Collector.new(path,fc,spool_queue)
+  @collectors << LogCollector::Collector.new(path,fc,event_queue)
 end
 
 def shutdown
@@ -74,6 +77,11 @@ def shutdown
   end
   begin
     @spooler.terminate
+  rescue Exception => e
+    on_exception e, false
+  end
+  begin
+    @sender.terminate
   rescue Exception => e
     on_exception e, false
   end
@@ -92,4 +100,4 @@ Signal.trap("INT") do
 end
 
 # just hang in here and let the threads do the work
-@spooler.spool_thread.join
+@sender.send_thread.join

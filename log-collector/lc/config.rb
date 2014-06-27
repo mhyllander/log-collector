@@ -2,11 +2,11 @@ module LogCollector
 
   class Config
     Default_StateFile = 'log-collector.state'
-    Default_FlushInterval = '1s'
+    Default_FlushInterval = '5s'
     Default_FlushSize = 1000
 
     Default_QueueSize = 2000
-    Default_MultilineWait = '2s'
+    Default_MultilineWait = '5s'
 
     Default_SendErrorDelay = '1s'
     Default_RecvTries = 2

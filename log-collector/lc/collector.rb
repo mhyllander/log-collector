@@ -5,7 +5,7 @@ module LogCollector
 
     FORCE_ENCODING = !! (defined? Encoding)
 
-    def initialize(path,fileconfig,spool_queue)
+    def initialize(path,fileconfig,event_queue)
       @path = path
       @fileconfig = fileconfig
       @deadtime = fileconfig['deadtime']
@@ -24,13 +24,13 @@ module LogCollector
 
       # if doing multiline processing
       if fileconfig['multiline_re']
-        # set up a Multiline processor to read line_queue and forward to spool_queue
+        # set up a Multiline processor to read line_queue and forward to event_queue
         require 'lc/multiline'
-        @line_queue = SizedQueue.new(spool_queue.max)
-        @multiline = Multiline.new(@fileconfig,@line_queue,spool_queue)
+        @line_queue = SizedQueue.new(event_queue.max)
+        @multiline = Multiline.new(@fileconfig,@line_queue,event_queue)
       else
-        # send lines directly to spool_queue
-        @line_queue = spool_queue
+        # send lines directly to event_queue
+        @line_queue = event_queue
       end
 
       # intitialize the filetail, this will also set the current position
@@ -67,17 +67,13 @@ module LogCollector
           # If we were far behind when starting to read the file, the file could have been rotated
           # while we were catching up. Therefore we need to loop here and read the new file until we
           # really catch up.
-          # Note that @file.stat returns data about @path, not about the currently open file! If the
-          # file has been replaced by a new one, then we will get stat for the new file. fstat.size
-          # will be the size of the new file, while @file.size is the size of the currently open
-          # file.
           # Check if it's a different file, or if it has shrunk (been truncated).
-          fstat = @file.stat rescue nil
-          while fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino]) || @file.size < @position
+          fstat = File.stat(@path) rescue nil
+          while fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino]) || @file && @file.size<@position
             $logger.info "#{@path}: file appears to have been rotated while catching up"
             open
             read_to_eof
-            fstat = @file.stat rescue nil
+            fstat = File.stat(@path) rescue nil
           end
         end
       end
@@ -166,6 +162,7 @@ module LogCollector
         @file = File.open(@path, "r")
       rescue Errno::ENOENT => e
         $logger.warning "#{@path}: file not found"
+        @file = nil
         on_exception e
       end
       fstat = @file.stat
