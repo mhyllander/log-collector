@@ -32,8 +32,8 @@ module LogCollector
     end
 
     def terminate
-      # set shutdown state which will stop new requests
       @shutdown = true
+      @request_queue.clear
       @request_queue.push :exit
     end
 
