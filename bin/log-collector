@@ -21,4 +21,5 @@ else
 
 fi
 
-exec rvm-exec jruby@log-collector ruby --server $DIR/../log-collector/log-collector.rb "$@"
+JRUBY=${JRUBY:-jruby}
+exec rvm-exec ${JRUBY}@log-collector ruby --server $DIR/../log-collector/log-collector.rb "$@"
