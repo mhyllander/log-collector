@@ -21,6 +21,10 @@ module LogCollector
       @position = 0
       @stat = {}
       @monitor = nil
+      @symlink_monitors = []
+
+      @pass_start = event_queue.max / 4
+      @pass_countdown = @pass_start
 
       # if doing multiline processing
       if fileconfig['multiline_re']
@@ -49,7 +53,14 @@ module LogCollector
     def terminate
       $logger.info "terminating collector for #{@path}"
       @input_thread.terminate
+      cancel_monitors
+    end
+
+    def cancel_monitors
       @monitor.stop if @monitor
+      @monitor = nil
+      @symlink_monitors.each {|m| m.stop}
+      @symlink_monitors.clear
     end
 
     def process_file(startpos)
@@ -87,8 +98,9 @@ module LogCollector
     # file modified: modified
     # file renamed:  renamed
     def monitor_file
+      pn = Pathname.new(@path)
+      dir, base = pn.split.map {|p| p.to_s}
       @monitor = JRubyNotify::Notify.new
-      dir, base = Pathname.new(@path).split.map {|p| p.to_s}
       @monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
         Thread.current['name'] = 'collector/monitor'
         Thread.current.priority = 10
@@ -143,13 +155,72 @@ module LogCollector
               open
               # next event :modified follows immediately
             end # case change
+          elsif change==:renamed && newfile==base
+            # Some other file has replaced the one we were monitoring. Finish the current file,
+            # then open the new one.
+            read_to_eof
+            open
           end # if file==base
         rescue Exception=>e
           on_exception e, false
         end
       end # @monitor.watch
       @monitor.run
-      $logger.info "#{@path}: watching #{dir} for #{base} notifications"
+      $logger.info %Q[#{@path}: watching "#{dir}" for notifications about "#{base}"]
+
+      # check if any parents are symlinks, and if so monitor the symlinks
+      pn = pn.parent
+      until pn.root?
+        @symlink_monitors << monitor_symlink(pn) if pn.symlink?
+        pn = pn.parent
+      end # until pn.root?
+    end
+
+    def monitor_symlink(pn)
+      dir, base = pn.split.map {|p| p.to_s}
+      $logger.info %Q[#{@path}: watching "#{dir}" for notifications about "#{base}" symlink]
+      mon = JRubyNotify::Notify.new
+      mon.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
+        begin
+          $logger.debug "#{@path}: detected '#{change}' #{path}/#{file} (#{newfile})"
+          case change
+          when :created
+            if file==base
+              # base was re-created, either as a symlink or a directory
+              check_if_monitor_restart dir, base
+            end
+          when :renamed
+            # symlink base was renamed, or another symlink/dir was renamed to base
+            if file==base       # like a delete
+              # if a symlink was deleted we just keep on reading the open file
+              # and monitor for the re-creation of the symlink/directory
+            elsif newfile==base # like a create
+              # base was re-created, either as a symlink or a directory
+              check_if_monitor_restart dir, base
+            end
+          when :deleted
+            # a symlink was deleted
+            if file==base
+              # if a symlink was deleted we just keep on reading the open file
+              # and monitor for the re-creation of the symlink/directory
+            end
+          end # case change
+        rescue Exception=>e
+          on_exception e, false
+        end
+      end # mon.watch
+      mon.run
+      mon
+    end
+
+    def check_if_monitor_restart(dir,base)
+      fstat = File.stat(@path) rescue nil
+      if fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino])
+        $logger.info "#{@path}: file appears to be different when #{dir}/#{base} changed"
+        cancel_monitors
+        read_to_eof
+        process_file 0
+      end
     end
 
     def open
@@ -221,6 +292,13 @@ module LogCollector
       ev = LogEvent.new(@path,line,@stat,@linepos,@fileconfig['fields'])
       $logger.debug { "#{@path}: enqueue ev=#{ev}" }
       @line_queue.push ev
+
+      # after a number of queued events, pass control to another thread to avoid starvation
+      @pass_countdown -= 1
+      if @pass_countdown <= 0
+        @pass_countdown = @pass_start
+        Thread.pass
+      end
     end
 
   end # class Collector

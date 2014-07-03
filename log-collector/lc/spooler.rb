@@ -22,6 +22,7 @@ module LogCollector
     end
 
     def terminate
+      $logger.info "terminating spooler"
       @shutdown = true
       @event_queue.clear
       @event_queue.push :exit

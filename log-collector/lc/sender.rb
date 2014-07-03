@@ -32,6 +32,7 @@ module LogCollector
     end
 
     def terminate
+      $logger.info "terminating sender"
       @shutdown = true
       @request_queue.clear
       @request_queue.push :exit
