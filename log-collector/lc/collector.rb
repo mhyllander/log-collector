@@ -23,9 +23,6 @@ module LogCollector
       @monitor = nil
       @symlink_monitors = []
 
-      @pass_start = event_queue.max / 4
-      @pass_countdown = @pass_start
-
       # if doing multiline processing
       if fileconfig['multiline_re']
         # set up a Multiline processor to read line_queue and forward to event_queue
@@ -292,13 +289,6 @@ module LogCollector
       ev = LogEvent.new(@path,line,@stat,@linepos,@fileconfig['fields'])
       $logger.debug { "#{@path}: enqueue ev=#{ev}" }
       @line_queue.push ev
-
-      # after a number of queued events, pass control to another thread to avoid starvation
-      @pass_countdown -= 1
-      if @pass_countdown <= 0
-        @pass_countdown = @pass_start
-        Thread.pass
-      end
     end
 
   end # class Collector
