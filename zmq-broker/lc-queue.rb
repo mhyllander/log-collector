@@ -11,9 +11,7 @@ PPP_PING  = "\x02" # Signals queue ping
 PPP_PONG  = "\x03" # Signals worker pong
 
 class Worker
-  attr_reader :identity
-  attr_reader :expiry
-  attr_reader :ping_at
+  attr_reader :identity, :expiry, :ping_at
 
   def initialize(identity)
     @identity = identity
@@ -21,8 +19,9 @@ class Worker
   end
 
   def renew_expiry
-    @ping_at = Time.now + $options[:ping_interval]
-    @expiry = Time.now + $options[:ping_interval] * $options[:ping_liveness]
+    now = Time.now
+    @ping_at = now + $options[:ping_interval]
+    @expiry = now + $options[:ping_interval] * $options[:ping_liveness]
   end
 end
 
@@ -75,12 +74,9 @@ def run
   $logger.info "backend bind to #{$options[:backend]}"
   backend.bind $options[:backend]
 
-  poll_workers = ZMQ::Poller.new
-  poll_workers.register_readable backend
-
-  poll_both = ZMQ::Poller.new
-  poll_both.register_readable backend
-  poll_both.register_readable frontend
+  poller = ZMQ::Poller.new
+  poller.register_readable backend
+  poller.register_readable frontend
 
   workers = WorkerQueue.new
   requests = OrderedHash.new
@@ -88,7 +84,6 @@ def run
   responses = {}
 
   loop do
-    poller = workers.available > 0 ? poll_both : poll_workers
     while poller.poll($options[:ping_interval]*1000) > 0
       poller.readables.each do |readable|
 
