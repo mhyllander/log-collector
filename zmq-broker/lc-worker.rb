@@ -35,6 +35,7 @@ def run
 
   workerid = "W:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
   worker = worker_socket context, workerid, poller
+  last_sent = Time.now
 
   loop do
 
@@ -48,9 +49,10 @@ def run
           worker.recv_strings msgs = []
           if msgs.length==1
             $logger.debug "got msg len=#{msgs.length} msgs=#{msgs}"
-            if msgs[0]==PPP_PING
+            if msgs[0]==PPP_PING && (Time.now-last_sent) > $options[:ping_interval]
               $logger.debug "recv queue ping, send pong"
               worker.send_string PPP_PONG
+              last_sent = Time.now
             end
           elsif msgs.length==4
             # msgs[0]: client id
@@ -66,6 +68,7 @@ def run
             data = JSON.parse(json)
             $logger.debug "send ACK serial=#{serial} n=#{data['n']}"
             worker.send_strings [clientid, '', serial, ['ACK',serial,data['n']].to_json]
+            last_sent = Time.now
           else
             $logger.error "Invalid message: #{msgs}"
           end
@@ -91,6 +94,7 @@ def run
       interval *= 2 if interval < INTERVAL_MAX
 
       worker = worker_socket context, workerid, poller
+      last_sent = Time.now
       liveness = $options[:ping_liveness]
     end
 
