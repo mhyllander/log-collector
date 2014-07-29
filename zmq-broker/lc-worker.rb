@@ -19,6 +19,7 @@ INTERVAL_MAX  = 32
 def worker_socket(context, identity, poller)
   worker = context.socket ZMQ::DEALER
   worker.setsockopt ZMQ::IDENTITY, identity
+  worker.setsockopt ZMQ::LINGER, 0
   poller.register_readable worker
   $logger.info "worker connect to #{$options[:queue]}"
   worker.connect $options[:queue]
@@ -39,7 +40,7 @@ def run
 
   loop do
 
-    while poller.poll($options[:ping_interval]*1000) > 0
+    while (rc = poller.poll($options[:ping_interval]*1000)) > 0
       poller.readables.each do |readable|
         if readable==worker
 
@@ -48,7 +49,7 @@ def run
           # - 1-part PING -> ping
           worker.recv_strings msgs = []
           if msgs.length==1
-            $logger.debug "got msg len=#{msgs.length} msgs=#{msgs}"
+            $logger.debug "recv msg len=#{msgs.length} msgs=#{msgs}"
             if msgs[0]==PPP_PING && (Time.now-last_sent) > $options[:ping_interval]
               $logger.debug "recv queue ping, send pong"
               worker.send_string PPP_PONG
@@ -62,8 +63,8 @@ def run
             clientid = msgs[0]
             serial = msgs[2]
             request = msgs[3]
-            $logger.debug "got msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
-            sleep 4*rand() # simulate doing dome work
+            $logger.debug "recv msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
+            sleep 10*rand() # simulate doing dome work
             json = Zlib::Inflate.inflate(request)
             data = JSON.parse(json)
             $logger.debug "send ACK serial=#{serial} n=#{data['n']}"
@@ -81,13 +82,15 @@ def run
       end # poller.readables.each
     end # while poller.poll
 
+    $logger.debug { "poller rc=#{rc}" }
+    break if rc == -1
+
     liveness -= 1
     if liveness==0
       $logger.debug "Queue failure (no pings or requests)"
       $logger.debug "Reconnecting in #{interval}s"
 
       poller.deregister_readable worker
-      worker.setsockopt ZMQ::LINGER, 0
       worker.close
 
       sleep interval
@@ -100,13 +103,14 @@ def run
 
   end # loop
 
+  $logger.info "terminating"
   worker.close
   context.terminate
 end
 
 $options = {
   queue: 'tcp://127.0.0.1:5560',
-  ping_interval: 1,
+  ping_interval: 5,
   ping_liveness: 3,
   syslog: false,
   loglevel: 'WARN'
