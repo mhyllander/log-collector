@@ -17,6 +17,7 @@ require 'lc/error_utils.rb'
 require 'lc/logger'
 require 'lc/config'
 require 'lc/logevent'
+require 'lc/monitor'
 require 'lc/collector'
 require 'lc/spooler'
 require 'lc/sender'
@@ -62,18 +63,13 @@ event_queue = SizedQueue.new(config.queue_size)
 request_queue = SizedQueue.new(1)
 @sender = LogCollector::Sender.new(config,request_queue)
 @spooler = LogCollector::Spooler.new(config,event_queue,request_queue)
-@collectors = []
-config.files.each do |path,fc|
-  @collectors << LogCollector::Collector.new(path,fc,event_queue)
-end
+@monitor = LogCollector::Monitor.new(config,event_queue)
 
 def shutdown
-  @collectors.each do |c|
-    begin
-      c.terminate
-    rescue Exception => e
-      on_exception e, false
-    end
+  begin
+    @monitor.terminate
+  rescue Exception => e
+    on_exception e, false
   end
   begin
     @spooler.terminate
