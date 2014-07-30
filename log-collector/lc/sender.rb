@@ -5,9 +5,10 @@ module LogCollector
 
     attr_reader :send_thread
 
-    def initialize(config,request_queue)
+    def initialize(config,clientid,request_queue)
       @hostname = config.hostname
       @servers = config.servers
+      @clientid = clientid || ("C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i])
       @request_queue = request_queue
 
       @state_mgr = State.new(config)
@@ -21,7 +22,6 @@ module LogCollector
 
       @zmq_context = ZMQ::Context.new(1)
       @poller = ZMQ::Poller.new
-      @clientid = "C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
 
       schedule_send_requests
 

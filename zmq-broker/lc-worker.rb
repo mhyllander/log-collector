@@ -34,7 +34,7 @@ def run
   liveness = $options[:ping_liveness]
   interval = INTERVAL_INIT
 
-  workerid = "W:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+  workerid = $options[:identity] || ("W:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i])
   worker = worker_socket context, workerid, poller
   last_sent = Time.now
 
@@ -110,6 +110,7 @@ end
 
 $options = {
   queue: 'tcp://127.0.0.1:5560',
+  identity: nil,
   ping_interval: 5,
   ping_liveness: 3,
   syslog: false,
@@ -121,6 +122,9 @@ parser = OptionParser.new do |opts|
 
   opts.on("-q", "--queue ZMQADDR", "The queue address to bind to (default=#{$options[:queue]}).") do |v|
     $options[:queue] = v
+  end
+  opts.on("-I", "--identity IDENTITY", "The worker identity.") do |v|
+    $options[:identity] = v
   end
   opts.on("-i", "--pinginterval NUMBER", Integer, "The ping interval in seconds (default=#{$options[:ping_interval]}).") do |v|
     $options[:ping_interval] = v
