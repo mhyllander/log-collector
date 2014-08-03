@@ -59,7 +59,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   config :sockopt, :validate => :hash
 
   # Ping interval in seconds
-  config :ping_interval, :validate => :number, :default => 1
+  config :ping_interval, :validate => :number, :default => 5
 
   # Ping liveness (3..5 is reasonable)
   config :ping_liveness, :validate => :number, :default => 3
@@ -139,6 +139,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   # connected to the Paranoid Pirate queue
   def worker_socket(context, poller)
     worker = context.socket @zmq_const
+    worker.setsockopt ZMQ::LINGER, 0
 
     if @sockopt
       setopts(worker, @sockopt)
@@ -156,6 +157,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   def run_worker(&block)
     poller = ZMQ::Poller.new
     @zsocket = worker_socket context, poller
+    last_sent = Time.now
 
     begin
       liveness = @ping_liveness
@@ -163,7 +165,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
 
       loop do
         
-        while poller.poll(@ping_interval*1000) > 0
+        while (rc = poller.poll(@ping_interval*1000)) > 0
           poller.readables.each do |readable|
             if readable==@zsocket
               
@@ -172,10 +174,11 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
               # - 1-part PING -> ping
               @zsocket.recv_strings msgs = []
               if msgs.length==1
-                @logger.debug "[log-collector] got msg len=#{msgs.length} msgs=#{msgs}"
-                if msgs[0]==PPP_PING
+                @logger.debug "[log-collector] recv msg len=#{msgs.length} msgs=#{msgs}"
+                if msgs[0]==PPP_PING && (Time.now-last_sent) > $options[:ping_interval]
                   @logger.debug "[log-collector] recv queue ping, send pong"
                   @zsocket.send_string PPP_PONG
+                  last_sent = Time.now
                 end
               elsif msgs.length==4
                 # msgs[0]: client id
@@ -185,7 +188,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 clientid = msgs[0]
                 serial = msgs[2]
                 request = msgs[3]
-                @logger.debug "[log-collector] got msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
+                @logger.debug "[log-collector] recv msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
 
                 # handle request by feeding the log events to logstash
                 batch = JSON.parse(Zlib::Inflate.inflate(request))
@@ -203,6 +206,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
 
                 # send an ACK back to client when finished
                 @zsocket.send_strings [clientid, '', serial, ['ACK',serial,batch['n']].to_json]
+                last_sent = Time.now
               else
                 @logger.error "[log-collector] Invalid message: #{msgs}"
               end
@@ -215,19 +219,22 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
           end # poller.readables.each
         end # while poller.poll
 
+        @logger.debug "poller rc=#{rc}"
+        break if rc == -1
+        
         liveness -= 1
         if liveness==0
           @logger.debug "[log-collector] Queue failure (no pings or requests)"
           @logger.debug "[log-collector] Reconnecting in #{interval}s"
 
           poller.deregister_readable @zsocket
-          @zsocket.setsockopt ZMQ::LINGER, 0
           @zsocket.close
 
           sleep interval
           interval *= 2 if interval < INTERVAL_MAX
 
           @zsocket = worker_socket context, poller
+          last_sent = Time.now
           liveness = @ping_liveness
         end
 

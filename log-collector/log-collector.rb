@@ -17,6 +17,7 @@ require 'lc/error_utils.rb'
 require 'lc/logger'
 require 'lc/config'
 require 'lc/logevent'
+require 'lc/monitor'
 require 'lc/collector'
 require 'lc/spooler'
 require 'lc/sender'
@@ -29,6 +30,7 @@ Thread.current['name'] = 'main'
 
 options = {
   configfile: 'log-collector.conf',
+  identity: nil,
   syslog: false,
   loglevel: 'WARN'
 }
@@ -38,6 +40,9 @@ parser = OptionParser.new do |opts|
 
   opts.on("-f", "--config CONFIGFILE", "The configuration file to use.") do |v|
     options[:configfile] = v
+  end
+  opts.on("-I", "--identity IDENTITY", "The client identity.") do |v|
+    options[:identity] = v
   end
   opts.on("-l", "--[no-]syslog", "Log to syslog (default=#{options[:syslog]}).") do |v|
     options[:syslog] = v
@@ -60,20 +65,15 @@ $logger.debug("Debugging #{$logger.id}...")
 config = LogCollector::Config.new(options[:configfile])
 event_queue = SizedQueue.new(config.queue_size)
 request_queue = SizedQueue.new(1)
-@sender = LogCollector::Sender.new(config,request_queue)
+@sender = LogCollector::Sender.new(config,options[:identity],request_queue)
 @spooler = LogCollector::Spooler.new(config,event_queue,request_queue)
-@collectors = []
-config.files.each do |path,fc|
-  @collectors << LogCollector::Collector.new(path,fc,event_queue)
-end
+@monitor = LogCollector::Monitor.new(config,event_queue)
 
 def shutdown
-  @collectors.each do |c|
-    begin
-      c.terminate
-    rescue Exception => e
-      on_exception e, false
-    end
+  begin
+    @monitor.terminate
+  rescue Exception => e
+    on_exception e, false
   end
   begin
     @spooler.terminate

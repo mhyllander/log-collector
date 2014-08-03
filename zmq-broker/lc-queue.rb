@@ -11,18 +11,22 @@ PPP_PING  = "\x02" # Signals queue ping
 PPP_PONG  = "\x03" # Signals worker pong
 
 class Worker
-  attr_reader :identity
-  attr_reader :expiry
-  attr_reader :ping_at
+  attr_reader :identity, :expiry, :ping_at, :request_queue
 
   def initialize(identity)
     @identity = identity
+    @request_queue = []
     renew_expiry
   end
 
+  def queue_length
+    @request_queue.length
+  end
+
   def renew_expiry
-    @ping_at = Time.now + $options[:ping_interval]
-    @expiry = Time.now + $options[:ping_interval] * $options[:ping_liveness]
+    now = Time.now
+    @ping_at = now + $options[:ping_interval]
+    @expiry = now + $options[:ping_interval] * $options[:ping_liveness]
   end
 end
 
@@ -38,9 +42,10 @@ class WorkerQueue
       worker.renew_expiry
       $logger.debug "renew expiry worker=#{workerid}"
     else
-      @queue[workerid] = Worker.new(workerid)
+      worker = @queue[workerid] = Worker.new(workerid)
       $logger.debug "add to queue worker=#{workerid}"
     end
+    worker
   end
 
   # look for and kill expired workers
@@ -55,32 +60,44 @@ class WorkerQueue
     end
   end
 
+  # remove the request from any worker queue(s)
+  def purge_request(key)
+    @queue.each do |identity,worker|
+      worker.request_queue.delete key
+    end
+  end
+
   def next
-    identity, _ = @queue.shift
-    identity
+    # find first available worker
+    identity, worker = self.available
+    return nil if identity.nil?
+    # move worker last in queue
+    @queue.delete identity
+    @queue[identity] = worker
+    worker.renew_expiry
+    worker
   end
 
   def available
-    @queue.length
+    @queue.detect {|identity,worker| worker.queue_length < $options[:enqueue]}
   end
 end
 
 def run
   context = ZMQ::Context.new
   frontend = context.socket ZMQ::ROUTER
+  frontend.setsockopt ZMQ::LINGER, 0
   backend = context.socket ZMQ::ROUTER
+  backend.setsockopt ZMQ::LINGER, 0
 
   $logger.info "frontend bind to #{$options[:frontend]}"
   frontend.bind $options[:frontend]
   $logger.info "backend bind to #{$options[:backend]}"
   backend.bind $options[:backend]
 
-  poll_workers = ZMQ::Poller.new
-  poll_workers.register_readable backend
-
-  poll_both = ZMQ::Poller.new
-  poll_both.register_readable backend
-  poll_both.register_readable frontend
+  poller = ZMQ::Poller.new
+  poller.register_readable backend
+  poller.register_readable frontend
 
   workers = WorkerQueue.new
   requests = OrderedHash.new
@@ -88,8 +105,7 @@ def run
   responses = {}
 
   loop do
-    poller = workers.available > 0 ? poll_both : poll_workers
-    while poller.poll($options[:ping_interval]*1000) > 0
+    while (rc = poller.poll($options[:ping_interval]*1000)) > 0
       poller.readables.each do |readable|
 
         if readable === backend
@@ -97,10 +113,10 @@ def run
           backend.recv_strings msgs = []
           if msgs.length>0
             workerid = msgs[0]
-            $logger.debug { "got msg worker=#{workerid} len=#{msgs.length} msgs=#{msgs}" }
+            $logger.debug { "recv worker=#{workerid} len=#{msgs.length} msgs=#{msgs}" }
 
             # Add this worker to the list of available workers
-            workers.ready(workerid)
+            worker = workers.ready(workerid)
 
             if msgs.length==2
               # [workerid, msg]
@@ -115,6 +131,9 @@ def run
               # cache the response for a while in case the client re-sends the request
               key = "#{msgs[1]}/#{msgs[3]}"
               responses[key] = [ msgs, Time.now + $options[:response_time] ]
+              # remove request from worker queue
+              worker.request_queue.delete key
+              $logger.debug { "worker #{worker.identity}, queue=#{worker.request_queue}" }
             else
               $logger.error "Error: Invalid message from worker: #{msgs}"
             end
@@ -126,7 +145,7 @@ def run
           frontend.recv_strings msgs = []
           if msgs.length==4
             # [ clientid, '', serial, request ]
-            $logger.debug { "got msg client=#{msgs[0]} serial=#{msgs[2]} len=#{msgs.length}" }
+            $logger.debug { "recv msg client=#{msgs[0]} serial=#{msgs[2]} len=#{msgs.length}" }
             key = "#{msgs[0]}/#{msgs[2]}"
             if r = responses[key]
               # This request has already been processed by a worker. Apparently the client has not
@@ -137,7 +156,7 @@ def run
               frontend.send_strings resp[1..-1]
             elsif processing.include? key
               # This request has already been sent to a worker for processing. Just continue waiting for the worker's reponse.
-              $logger.info { "ignore request #{key}, already processing" }
+              $logger.info { "already processing request #{key}" }
             else
               # Enqueue the request for processing. The request might already be in the queue, if so
               # it will just retain its position.
@@ -150,17 +169,24 @@ def run
 
         end
 
-        # send enqueued request if worker available
-        if requests.size>0 && workers.available>0
-          workerid = workers.next
-          key, msgs = requests.shift
-          $logger.info "--> request client=#{msgs[0]} to worker=#{workerid}, serial=#{msgs[2]}"
-          backend.send_strings [workerid] + msgs
-          processing[key] = Time.now + $options[:processing_time]
-        end
-
       end # poller.readables.each
+
+      # send enqueued request if worker available
+      while requests.size>0 && workers.available
+        worker = workers.next
+        key, msgs = requests.shift
+        $logger.info "--> request client=#{msgs[0]} to worker=#{worker.identity}, serial=#{msgs[2]}"
+        backend.send_strings [worker.identity] + msgs
+        processing[key] = Time.now + $options[:processing_time]
+        # save request in worker queue
+        worker.request_queue << key
+        $logger.debug { "worker #{worker.identity}, queue=#{worker.request_queue}" }
+      end
+
     end # while poller.poll
+
+    $logger.debug { "poller rc=#{rc}" }
+    break if rc == -1
 
     # Send pings to idle workers if it's time
     workers.queue.each do |workerid,worker|
@@ -176,13 +202,17 @@ def run
     # removed expired requests from processing
     expire = []
     processing.each {|k,t| expire << k if t < now}
-    expire.each {|k| processing.delete k}
+    expire.each do |k|
+      processing.delete k
+      workers.purge_request k
+    end
     # removed expired requests from responses
     expire = []
     responses.each {|k,r| expire << k if r[1] < now}
     expire.each {|k| responses.delete k}
   end
 
+  $logger.info "terminating"
   frontend.close
   backend.close
   context.terminate
@@ -193,8 +223,9 @@ $options = {
   backend: 'tcp://*:5560',
   processing_time: 120,
   response_time: 240,
-  ping_interval: 1,
+  ping_interval: 5,
   ping_liveness: 3,
+  queue_length: 1,
   syslog: false,
   loglevel: 'WARN'
 }
@@ -225,6 +256,9 @@ parser = OptionParser.new do |opts|
   end
   opts.on("-L", "--loglevel LOGLEVEL", "Log level (default=#{$options[:loglevel]}).") do |v|
     $options[:loglevel] = v.upcase
+  end
+  opts.on("-e", "--enqueue LENGTH", Integer, "Per worker queue length (default=#{$options[:enqueue]}).") do |v|
+    $options[:enqueue] = v
   end
 
   opts.on_tail("-h", "--help", "Show this message") do

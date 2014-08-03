@@ -19,6 +19,7 @@ INTERVAL_MAX  = 32
 def worker_socket(context, identity, poller)
   worker = context.socket ZMQ::DEALER
   worker.setsockopt ZMQ::IDENTITY, identity
+  worker.setsockopt ZMQ::LINGER, 0
   poller.register_readable worker
   $logger.info "worker connect to #{$options[:queue]}"
   worker.connect $options[:queue]
@@ -33,12 +34,13 @@ def run
   liveness = $options[:ping_liveness]
   interval = INTERVAL_INIT
 
-  workerid = "W:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i]
+  workerid = $options[:identity] || ("W:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i])
   worker = worker_socket context, workerid, poller
+  last_sent = Time.now
 
   loop do
 
-    while poller.poll($options[:ping_interval]*1000) > 0
+    while (rc = poller.poll($options[:ping_interval]*1000)) > 0
       poller.readables.each do |readable|
         if readable==worker
 
@@ -47,10 +49,11 @@ def run
           # - 1-part PING -> ping
           worker.recv_strings msgs = []
           if msgs.length==1
-            $logger.debug "got msg len=#{msgs.length} msgs=#{msgs}"
-            if msgs[0]==PPP_PING
+            $logger.debug "recv msg len=#{msgs.length} msgs=#{msgs}"
+            if msgs[0]==PPP_PING && (Time.now-last_sent) > $options[:ping_interval]
               $logger.debug "recv queue ping, send pong"
               worker.send_string PPP_PONG
+              last_sent = Time.now
             end
           elsif msgs.length==4
             # msgs[0]: client id
@@ -60,12 +63,13 @@ def run
             clientid = msgs[0]
             serial = msgs[2]
             request = msgs[3]
-            $logger.debug "got msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
-            sleep 4*rand() # simulate doing dome work
+            $logger.debug "recv msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
+            sleep 10*rand() # simulate doing dome work
             json = Zlib::Inflate.inflate(request)
             data = JSON.parse(json)
             $logger.debug "send ACK serial=#{serial} n=#{data['n']}"
             worker.send_strings [clientid, '', serial, ['ACK',serial,data['n']].to_json]
+            last_sent = Time.now
           else
             $logger.error "Invalid message: #{msgs}"
           end
@@ -78,31 +82,36 @@ def run
       end # poller.readables.each
     end # while poller.poll
 
+    $logger.debug { "poller rc=#{rc}" }
+    break if rc == -1
+
     liveness -= 1
     if liveness==0
       $logger.debug "Queue failure (no pings or requests)"
       $logger.debug "Reconnecting in #{interval}s"
 
       poller.deregister_readable worker
-      worker.setsockopt ZMQ::LINGER, 0
       worker.close
 
       sleep interval
       interval *= 2 if interval < INTERVAL_MAX
 
       worker = worker_socket context, workerid, poller
+      last_sent = Time.now
       liveness = $options[:ping_liveness]
     end
 
   end # loop
 
+  $logger.info "terminating"
   worker.close
   context.terminate
 end
 
 $options = {
   queue: 'tcp://127.0.0.1:5560',
-  ping_interval: 1,
+  identity: nil,
+  ping_interval: 5,
   ping_liveness: 3,
   syslog: false,
   loglevel: 'WARN'
@@ -113,6 +122,9 @@ parser = OptionParser.new do |opts|
 
   opts.on("-q", "--queue ZMQADDR", "The queue address to bind to (default=#{$options[:queue]}).") do |v|
     $options[:queue] = v
+  end
+  opts.on("-I", "--identity IDENTITY", "The worker identity.") do |v|
+    $options[:identity] = v
   end
   opts.on("-i", "--pinginterval NUMBER", Integer, "The ping interval in seconds (default=#{$options[:ping_interval]}).") do |v|
     $options[:ping_interval] = v
