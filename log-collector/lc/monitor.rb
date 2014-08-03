@@ -9,7 +9,7 @@ module LogCollector
 
       @collectors = {}
       @monitors = {}
-      @symlink_monitors = {}
+      @parent_monitors = {}
 
       config.files.each do |path,fc|
         collector = LogCollector::Collector.new(path,fc,@event_queue)
@@ -29,25 +29,42 @@ module LogCollector
       $logger.info "cancel monitors"
       @monitors.each {|p,m| m.stop}
       @monitors.clear
-      @symlink_monitors.each {|p,m| m.stop}
-      @symlink_monitors.clear
+      @parent_monitors.each {|p,m| m.stop}
+      @parent_monitors.clear
     end
 
     def setup_monitors
       $logger.info "setup monitors"
-      symlink_deps = {}
+      logdirs = {}
+      parentdirs = {}
 
       @collectors.each do |path,collector|
-        monitor, symlinks = monitor_file(path,collector)
-        @monitors[path] = monitor
-        symlinks.each do |pn|
-          symlink_deps[pn] ||= []
-          symlink_deps[pn] << collector
+        pn = Pathname.new(path)
+
+        # get log dirs
+        dir, base = pn.split.map {|f| f.to_s}
+        logdirs[dir] ||= {}
+        logdirs[dir][base] = collector
+
+        # get all parents of log dirs
+        pn = pn.parent
+        until pn.root?
+          dir, base = pn.split.map {|f| f.to_s}
+          parentdirs[dir] ||= {}
+          parentdirs[dir][base] ||= []
+          parentdirs[dir][base] << collector
+          pn = pn.parent
         end
       end
 
-      symlink_deps.each do |pn,collectors|
-        @symlink_monitors[pn.to_s] = monitor_symlink(pn,collectors)
+      # start monitors on log dirs
+      logdirs.each do |dir,files|
+        @monitors[dir] = monitor_files(dir,files)
+      end
+
+      # start monitors on all parents of log dirs
+      parentdirs.each do |dir,parents|
+        @parent_monitors[dir] = monitor_parents(dir,parents)
       end
     end
 
@@ -56,19 +73,17 @@ module LogCollector
     # file deleted:  deleted
     # file modified: modified
     # file renamed:  renamed
-    def monitor_file(logfile,collector)
-      pn = Pathname.new(logfile)
-      dir, base = pn.split.map {|f| f.to_s}
+    def monitor_files(dir,files)
       monitor = JRubyNotify::Notify.new
       monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
         Thread.current['name'] = 'monitor'
         Thread.current.priority = 20
         begin
           unless file =~ /\/$/
-            $logger.debug "#{path}: detected '#{change}' #{file} (#{newfile})"
-            if base==file
+            $logger.debug { %Q[#{path}: detected "#{file}" '#{change}' (#{newfile})] }
+            if (collector = files[file])
               collector.notification_queue.push change
-            elsif change==:renamed && base==newfile
+            elsif change==:renamed && (collector = files[newfile])
               collector.notification_queue.push :replaced
             end
           end
@@ -77,46 +92,35 @@ module LogCollector
         end
       end # monitor.watch
       monitor.run
-      $logger.info %Q[watching "#{dir}" for notifications]
-
-      # check if any parents are symlinks
-      symlinks = []
-      pn = pn.parent
-      until pn.root?
-        symlinks << pn if pn.symlink?
-        pn = pn.parent
-      end
-
-      [monitor, symlinks]
+      $logger.info { %Q[watching "#{dir}" for notifications about files #{files.keys}] }
+      monitor
     end
 
-    def monitor_symlink(pn,collectors)
-      dir, base = pn.split.map {|f| f.to_s}
-      $logger.info %Q[watching "#{dir}" for notifications about "#{base}" symlink]
+    def monitor_parents(dir,parents)
       monitor = JRubyNotify::Notify.new
       monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
         begin
-          $logger.debug "#{@path}: detected '#{change}' #{file} (#{newfile})"
+          $logger.debug { %Q[#{path}: detected "#{file}" '#{change}' (#{newfile})] }
           case change
           when :created
-            if file==base
-              # base was re-created, either as a symlink or a directory
+            if (collectors = parents[file])
+              # base was re-created
               check_and_restart_monitors collectors
             end
           when :renamed
-            # symlink base was renamed, or another symlink/dir was renamed to base
-            if file==base       # like a delete
-              # if a symlink was deleted we just keep on reading the open file
-              # and monitor for the re-creation of the symlink/directory
-            elsif newfile==base # like a create
-              # base was re-created, either as a symlink or a directory
+            # base was renamed, or another dir was renamed to base
+            if (collectors = parents[file])       # like a delete
+              # if a parent was deleted we just keep on reading the open file
+              # and monitor for the re-creation of the parent/directory
+            elsif (collectors = parents[newfile]) # like a create
+              # base was re-created
               check_and_restart_monitors collectors
             end
           when :deleted
-            # a symlink was deleted
-            if file==base
-              # if a symlink was deleted we just keep on reading the open file
-              # and monitor for the re-creation of the symlink/directory
+            # base was deleted
+            if (collectors = parents[file])
+              # if a parent was deleted we just keep on reading the open file
+              # and monitor for the re-creation of the parent/directory
             end
           end # case change
         rescue Exception=>e
@@ -124,6 +128,7 @@ module LogCollector
         end
       end # monitor.watch
       monitor.run
+      $logger.info { %Q[watching "#{dir}" for notifications about parents #{parents.keys}] }
       monitor
     end
 
