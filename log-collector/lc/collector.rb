@@ -5,13 +5,12 @@ module LogCollector
 
     FORCE_ENCODING = !! (defined? Encoding)
 
-    attr_reader :notification_queue
-
     def initialize(path,fileconfig,event_queue)
       @path = path
       @fileconfig = fileconfig
 
       @notification_queue = Queue.new
+      @last_notification = nil
 
       @deadtime = fileconfig['deadtime']
       @delimiter = fileconfig['delimiter']
@@ -78,6 +77,13 @@ module LogCollector
           read_to_eof
         end
       end
+    end
+
+    # notify is used by Monitor to enqueue notifications
+    def notify(notification)
+      # avoid queuing multiple :modified events in a row
+      @notification_queue << notification if @notification_queue.empty? || notification!=:modified || @last_notification!=:modified
+      @last_notification = notification
     end
 
     # notifications:
