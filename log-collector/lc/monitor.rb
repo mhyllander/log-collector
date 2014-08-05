@@ -4,16 +4,12 @@ module LogCollector
     include ErrorUtils
 
     def initialize(config,event_queue)
-      @config = config
-      @event_queue = event_queue
-
       @collectors = {}
       @monitors = {}
       @parent_monitors = {}
 
       config.files.each do |path,fc|
-        collector = LogCollector::Collector.new(path,fc,@event_queue)
-        @collectors[path] = collector
+        @collectors[path] = LogCollector::Collector.new(path,fc,event_queue)
       end
 
       setup_monitors
@@ -82,9 +78,9 @@ module LogCollector
           unless file =~ /\/$/
             $logger.debug { %Q[#{path}: detected "#{file}" '#{change}' (#{newfile})] }
             if (collector = files[file])
-              collector.notification_queue.push change
+              collector.notify change
             elsif change==:renamed && (collector = files[newfile])
-              collector.notification_queue.push :replaced
+              collector.notify :replaced
             end
           end
         rescue Exception=>e
@@ -133,7 +129,7 @@ module LogCollector
     end
 
     def check_and_restart_monitors(collectors)
-      collectors.each {|c| c.notification_queue.push :check}
+      collectors.each {|c| c.notify :check}
       cancel_monitors
       setup_monitors
     end
