@@ -19,10 +19,6 @@ class Worker
     renew_expiry
   end
 
-  def queue_length
-    @request_queue.length
-  end
-
   def renew_expiry
     now = Time.now
     @ping_at = now + $options[:ping_interval]
@@ -79,7 +75,7 @@ class WorkerQueue
   end
 
   def available
-    @queue.detect {|identity,worker| worker.queue_length < $options[:enqueue]}
+    @queue.detect {|identity,worker| worker.request_queue.length < $options[:enqueue]}
   end
 end
 
@@ -225,7 +221,7 @@ $options = {
   response_time: 240,
   ping_interval: 5,
   ping_liveness: 3,
-  queue_length: 1,
+  enqueue: 1,
   syslog: false,
   loglevel: 'WARN'
 }
