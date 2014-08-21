@@ -175,7 +175,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
               @zsocket.recv_strings msgs = []
               if msgs.length==1
                 @logger.debug "[log-collector] recv msg len=#{msgs.length} msgs=#{msgs}"
-                if msgs[0]==PPP_PING && (Time.now-last_msg_time) > $options[:ping_interval]
+                if msgs[0]==PPP_PING && (Time.now-last_msg_time) > @ping_interval
                   @logger.debug "[log-collector] recv queue ping, send pong"
                   @zsocket.send_string PPP_PONG
                   last_msg_time = Time.now
