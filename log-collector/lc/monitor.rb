@@ -83,6 +83,8 @@ module LogCollector
               collector.notify :replaced
             end
           end
+        rescue OutOfMemoryError
+          abort "Monitor: exiting because of java.lang.OutOfMemoryError"
         rescue Exception=>e
           on_exception e, false
         end
@@ -119,6 +121,8 @@ module LogCollector
               # and monitor for the re-creation of the parent/directory
             end
           end # case change
+        rescue OutOfMemoryError
+          abort "Monitor: exiting because of java.lang.OutOfMemoryError"
         rescue Exception=>e
           on_exception e, false
         end

@@ -46,6 +46,8 @@ module LogCollector
           begin
             client_sock
             process_requests
+          rescue OutOfMemoryError
+            abort "Sender: exiting because of java.lang.OutOfMemoryError"
           rescue Exception => e
             on_exception e, false
           end
@@ -92,6 +94,8 @@ module LogCollector
             $logger.error "got unexpected message: #{rcvmsg}"
           end
 
+        rescue OutOfMemoryError
+          abort "Sender: exiting because of java.lang.OutOfMemoryError"
         rescue Exception => e
           $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
           sleep @delay

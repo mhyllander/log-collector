@@ -35,6 +35,8 @@ module LogCollector
         loop do
           begin
             process_events
+          rescue OutOfMemoryError
+            abort "Spooler: exiting because of java.lang.OutOfMemoryError"
           rescue Exception => e
             on_exception e, false
           end
@@ -80,6 +82,8 @@ module LogCollector
             # flush any buffered events
             $logger.debug "schedule flush spool buffer"
             @event_queue.push :flush
+          rescue OutOfMemoryError
+            abort "Spooler: exiting because of java.lang.OutOfMemoryError"
           rescue Exception => e
             on_exception e, false
           end
