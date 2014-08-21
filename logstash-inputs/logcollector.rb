@@ -157,7 +157,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   def run_worker(&block)
     poller = ZMQ::Poller.new
     @zsocket = worker_socket context, poller
-    last_sent = Time.now
+    last_msg_time = Time.now
 
     begin
       liveness = @ping_liveness
@@ -175,10 +175,10 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
               @zsocket.recv_strings msgs = []
               if msgs.length==1
                 @logger.debug "[log-collector] recv msg len=#{msgs.length} msgs=#{msgs}"
-                if msgs[0]==PPP_PING && (Time.now-last_sent) > $options[:ping_interval]
+                if msgs[0]==PPP_PING && (Time.now-last_msg_time) > $options[:ping_interval]
                   @logger.debug "[log-collector] recv queue ping, send pong"
                   @zsocket.send_string PPP_PONG
-                  last_sent = Time.now
+                  last_msg_time = Time.now
                 end
               elsif msgs.length==4
                 # msgs[0]: client id
@@ -188,12 +188,15 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 clientid = msgs[0]
                 serial = msgs[2]
                 request = msgs[3]
-                @logger.debug "[log-collector] recv msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
+                @logger.debug "[log-collector] rcv msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
+                @logger.info "[log-collector] start processing client=#{clientid} serial=#{serial} len=#{msgs.length}"
+                start_time = Time.now.to_f
 
                 # handle request by feeding the log events to logstash
                 batch = JSON.parse(Zlib::Inflate.inflate(request))
                 host = batch['host'].force_encoding(Encoding::UTF_8)
-                batch['events'].each do |ev|
+                events = batch['events']
+                events.each do |ev|
                   data = {
                     '@timestamp' => Time.at(ev['ts']),
                     'host' => host,
@@ -206,7 +209,9 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
 
                 # send an ACK back to client when finished
                 @zsocket.send_strings [clientid, '', serial, ['ACK',serial,batch['n']].to_json]
-                last_sent = Time.now
+                last_msg_time = now = Time.now
+                time_spent = now.to_f-start_time
+                @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} time=%.2fs per_event=%.2fs" % [time_spent, time_spent/events.length]
               else
                 @logger.error "[log-collector] Invalid message: #{msgs}"
               end
@@ -234,7 +239,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
           interval *= 2 if interval < INTERVAL_MAX
 
           @zsocket = worker_socket context, poller
-          last_sent = Time.now
+          last_msg_time = Time.now
           liveness = @ping_liveness
         end
 
