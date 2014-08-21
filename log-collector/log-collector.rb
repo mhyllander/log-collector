@@ -14,7 +14,7 @@ require 'jruby-notify'
 require 'pathname'
 
 require 'java'
-include_class 'java.lang.OutOfMemoryError'
+java_import 'java.lang.OutOfMemoryError'
 
 require 'lc/error_utils.rb'
 require 'lc/logger'
