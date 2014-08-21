@@ -45,6 +45,8 @@ module LogCollector
           resume_file fileconfig['startpos']
           # monitoring the file for changes
           monitor_file
+        rescue OutOfMemoryError
+          abort "Collector: exiting because of java.lang.OutOfMemoryError"
         rescue Exception => e
           on_exception e
         end
@@ -165,6 +167,8 @@ module LogCollector
               read_to_eof
             end
           end # case change
+        rescue OutOfMemoryError
+          abort "Collector: exiting because of java.lang.OutOfMemoryError"
         rescue Exception=>e
           on_exception e, false
         end
