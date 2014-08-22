@@ -277,7 +277,7 @@ module LogCollector
       if !@multiline_re.match(line).nil? != @multiline_invert
         if @multiline_ev.nil?
           @multiline_ev = new_event line
-          $logger.debug { "multiline(start): @multiline_ev=#{@multiline_ev}" }
+          $logger.debug { "multiline(no previous): @multiline_ev=#{@multiline_ev}" }
         else
           @multiline_ev.append line,@stat,@linepos
           $logger.debug { "multiline(append): @multiline_ev=#{@multiline_ev}" }
@@ -303,6 +303,7 @@ module LogCollector
         # loop until a full @multiline_wait has been slept
         slept = sleep(@multiline_wait) until slept==@multiline_wait
         # flush any held event
+        $logger.debug "schedule flush multiline_ev"
         @notification_queue.push :flush
       end
     end
