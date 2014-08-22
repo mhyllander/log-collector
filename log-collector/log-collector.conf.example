@@ -6,7 +6,7 @@
    },
    "hostname" : "myhostname",		      # optional, default is host's name
    "state_file" : "/tmp/log-collector.state", # optional, default log-collector.state
-   "flush_interval" : "2s",		      # optional, default 5s
+   "flush_interval" : "2s",		      # optional, default 30s
    "flush_size" : 2000,			      # optional, default 1000
    "queue_size" : 1000,			      # optional, default 2000
    "send_error_delay" : "5s",		      # optional, default 1s

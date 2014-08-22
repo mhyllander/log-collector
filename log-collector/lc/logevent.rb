@@ -18,10 +18,10 @@ module LogCollector
       @timestamp = Time.now
     end
 
-    def append(ev)
-      @line += "\n" + ev.line
-      @stat = ev.stat
-      @pos = ev.pos
+    def append(line,stat,pos)
+      @line << "\n" << line
+      @stat = stat
+      @pos = pos
     end
 
     def dev
@@ -33,7 +33,7 @@ module LogCollector
     end
 
     def to_s
-      "LogEvent[#{path}(#{dev}/#{ino}): pos=#{@pos} log=\"#{@line[0..20]}\"...]"
+      %Q(LogEvent[#{path}(#{dev}/#{ino}): pos=#{@pos} log="#{@line[0..20]}"...])
     end
   end
 

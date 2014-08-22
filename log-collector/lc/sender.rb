@@ -103,7 +103,7 @@ module LogCollector
         end
       end
       
-      $logger.info { "<-- response from worker: #{response} roundtrip_time=%.2f" % [Time.now.to_f - send_time] }
+      $logger.info { "<-- response from worker: #{response} roundtrip_time=%.2fs" % [Time.now.to_f - send_time] }
       
       # save state
       @state_mgr.update_state state_update
