@@ -19,6 +19,8 @@ module LogCollector
         loop do
           begin
             process_lines
+          rescue OutOfMemoryError
+            abort "Multiline: exiting because of java.lang.OutOfMemoryError"
           rescue Exception => e
             on_exception e, false
           end
@@ -30,6 +32,8 @@ module LogCollector
         loop do
           begin
             schedule_flush_held_ev
+          rescue OutOfMemoryError
+            abort "Multiline: exiting because of java.lang.OutOfMemoryError"
           rescue Exception => e
             on_exception e, false
           end
