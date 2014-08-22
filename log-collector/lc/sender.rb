@@ -75,6 +75,7 @@ module LogCollector
       return if @shutdown
 
       $logger.info { "sending request serial=#{serial} (#{msg['n']} events)" }
+      send_time = Time.now.to_f
       response = nil
       loop do
         begin
@@ -102,7 +103,7 @@ module LogCollector
         end
       end
       
-      $logger.info { "<-- response from worker: #{response}" }
+      $logger.info { "<-- response from worker: #{response} roundtrip_time=%.2fs" % [Time.now.to_f - send_time] }
       
       # save state
       @state_mgr.update_state state_update

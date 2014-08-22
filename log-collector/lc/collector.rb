@@ -8,6 +8,7 @@ module LogCollector
     def initialize(path,fileconfig,event_queue)
       @path = path
       @fileconfig = fileconfig
+      @event_queue = event_queue
 
       @notification_queue = Queue.new
       @last_notification = nil
@@ -25,15 +26,32 @@ module LogCollector
       @position = 0
       @stat = {}
 
+      @multiline = false
+      @multiline_re = nil
+      @multiline_invert = nil
+      @multiline_wait = nil
+      @multiline_ev = nil
+      @multiline_flush_thread = nil
+
       # if doing multiline processing
       if fileconfig['multiline_re']
-        # set up a Multiline processor to read line_queue and forward to event_queue
-        require 'lc/multiline'
-        @line_queue = SizedQueue.new(event_queue.max)
-        @multiline = Multiline.new(@fileconfig,@line_queue,event_queue)
-      else
-        # send lines directly to event_queue
-        @line_queue = event_queue
+        @multiline = true
+        @multiline_re = Regexp.new(fileconfig['multiline_re'])
+        @multiline_invert = fileconfig['multiline_invert']
+        @multiline_wait = fileconfig['multiline_wait']
+
+        @multiline_flush_thread = Thread.new do
+          Thread.current['name'] = 'collector/flush'
+          loop do
+            begin
+              multiline_schedule_flush_held_ev
+            rescue OutOfMemoryError
+              abort "Collector: exiting because of java.lang.OutOfMemoryError"
+            rescue Exception => e
+              on_exception e, false
+            end
+          end
+        end
       end
 
       # intitialize the filetail, this will also set the current position
@@ -55,14 +73,8 @@ module LogCollector
 
     def terminate
       $logger.info "terminating collector for #{@path}"
+      @multiline_flush_thread.terminate if @multiline_flush_thread
       @input_thread.terminate
-    end
-
-    def cancel_monitors
-      @monitor.stop if @monitor
-      @monitor = nil
-      @symlink_monitors.each {|m| m.stop}
-      @symlink_monitors.clear
     end
 
     def resume_file(startpos)
@@ -166,6 +178,8 @@ module LogCollector
               open
               read_to_eof
             end
+          when :flush
+            multiline_flush
           end # case change
         rescue OutOfMemoryError
           abort "Collector: exiting because of java.lang.OutOfMemoryError"
@@ -241,11 +255,62 @@ module LogCollector
       # the state file, so we know where to resume from if a restart
       # occurs.
       @linepos += line.bytesize + @delimiter_length
-      ev = LogEvent.new(@path,line,@stat,@linepos,@fileconfig['fields'])
-      $logger.debug { "#{@path}: enqueue ev=#{ev}" }
-      @line_queue.push ev
+
+      if @multiline
+        multiline_reset_flush
+        multiline_process line
+      else
+        ev = new_event line
+        $logger.debug { "#{@path}: enqueue ev=#{ev}" }
+        @event_queue.push ev
+      end
+    end
+    
+    def new_event(line)
+      LogEvent.new(@path,line,@stat,@linepos,@fileconfig['fields'])
     end
 
+    def multiline_process(line)
+      # Lines the match @multiline_re are continuation lines that will be appended to the previous line.
+      # If @multiline_invert is true, then lines that don't match @multiline_re are continuation lines.
+      # The "!= @multiline_invert" clause is a clever/sneaky way of inverting the result of the match.
+      if !@multiline_re.match(line).nil? != @multiline_invert
+        if @multiline_ev.nil?
+          @multiline_ev = new_event line
+          $logger.debug { "multiline(start): @multiline_ev=#{@multiline_ev}" }
+        else
+          @multiline_ev.append line,@stat,@linepos
+          $logger.debug { "multiline(append): @multiline_ev=#{@multiline_ev}" }
+        end
+      else
+        # not a continuation line, so send any held event
+        $logger.debug { "multiline(enqueue): @multiline_ev=#{@multiline_ev}" } if @multiline_ev
+        @event_queue.push(@multiline_ev) if @multiline_ev
+        @multiline_ev = new_event line
+      end
+    end
+
+    def multiline_flush
+      if @multiline_ev
+        $logger.debug { "multiline(flush): @multiline_ev=#{@multiline_ev}" }
+        @event_queue.push(@multiline_ev)
+        @multiline_ev = nil
+      end
+    end
+
+    def multiline_schedule_flush_held_ev
+      loop do
+        # loop until a full @multiline_wait has been slept
+        slept = sleep(@multiline_wait) until slept==@multiline_wait
+        # flush any held event
+        @notification_queue.push :flush
+      end
+    end
+
+    # restart the flush timer
+    def multiline_reset_flush
+      @multiline_flush_thread.wakeup
+    end
   end # class Collector
 
 end # module LogCollector
