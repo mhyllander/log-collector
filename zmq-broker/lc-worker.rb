@@ -64,7 +64,7 @@ def run
             serial = msgs[2]
             request = msgs[3]
             $logger.debug "recv msg client=#{clientid} serial=#{serial} len=#{msgs.length}"
-            sleep 10*rand() # simulate doing dome work
+            sleep 2*rand() # simulate doing dome work
             json = Zlib::Inflate.inflate(request)
             data = JSON.parse(json)
             $logger.debug "send ACK serial=#{serial} n=#{data['n']}"
