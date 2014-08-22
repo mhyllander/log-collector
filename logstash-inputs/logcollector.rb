@@ -211,7 +211,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 @zsocket.send_strings [clientid, '', serial, ['ACK',serial,batch['n']].to_json]
                 last_msg_time = now = Time.now
                 time_spent = now.to_f-start_time
-                @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} time=%.2fs per_second=%.2fs" % [time_spent, events.length/time_spent]
+                @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} time=%.2fs per_second=%.1f" % [time_spent, events.length/time_spent]
               else
                 @logger.error "[log-collector] Invalid message: #{msgs}"
               end

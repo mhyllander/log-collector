@@ -51,8 +51,12 @@ module LogCollector
         case ev
         when :flush
           # flush buffer when the special symbol :flush is received
-          $logger.debug "flushing spool buffer"
-          send_events
+          if @request_queue.empty?
+            $logger.debug "flushing spool buffer"
+            send_events
+          else
+            $logger.debug "waiting for next flush because there is already a pending request"
+          end
         when :exit
           # Exit thread when the special symbol :exit is received
           Thread.exit
