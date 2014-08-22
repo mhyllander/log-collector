@@ -12,6 +12,7 @@ module LogCollector
       @flush_interval = config.flush_interval
       @flush_size = config.flush_size
       @flush_thread = nil
+      @delayed_flush = false
 
       @shutdown = false
       @buffer = []
@@ -55,7 +56,8 @@ module LogCollector
             $logger.debug "flushing spool buffer"
             send_events
           else
-            $logger.debug "waiting for next flush because there is already a pending request"
+            $logger.debug "delaying flush until the request queue is empty"
+            @delayed_flush = true
           end
         when :exit
           # Exit thread when the special symbol :exit is received
@@ -69,7 +71,7 @@ module LogCollector
     def process_event(ev)
       @buffer << ev
       @state_to_save["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
-      if @buffer.size >= @flush_size
+      if @buffer.size >= @flush_size || @delayed_flush && @request_queue.empty?
         reset_flush
         send_events
       end
@@ -103,6 +105,7 @@ module LogCollector
     end
 
     def send_events
+      @delayed_flush = false
       return if @buffer.empty?
 
       # format the message to send
