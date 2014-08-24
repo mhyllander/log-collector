@@ -55,9 +55,9 @@ module LogCollector
       end
 
       # intitialize the filetail, this will also set the current position
-      @input_thread = Thread.new do
+      @collector_thread = Thread.new do
         Thread.current['name'] = 'collector'
-        Thread.current.priority = 10
+        Thread.current.priority = 2
         begin
           # resume reading the file from startpos
           resume_file fileconfig['startpos']
@@ -74,7 +74,7 @@ module LogCollector
     def terminate
       $logger.info "terminating collector for #{@path}"
       @multiline_flush_thread.terminate if @multiline_flush_thread
-      @input_thread.terminate
+      @collector_thread.terminate
     end
 
     def resume_file(startpos)

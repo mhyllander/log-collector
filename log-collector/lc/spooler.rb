@@ -15,8 +15,7 @@ module LogCollector
       @delayed_flush = false
 
       @shutdown = false
-      @buffer = []
-      @state_to_save = {}
+      @request = Request.new(@hostname)
 
       schedule_process_events
       schedule_flush
@@ -33,6 +32,7 @@ module LogCollector
       $logger.debug "schedule process events"
       @spool_thread = Thread.new do
         Thread.current['name'] = 'spooler'
+        Thread.current.priority = 1
         loop do
           begin
             process_events
@@ -69,9 +69,11 @@ module LogCollector
     end
 
     def process_event(ev)
-      @buffer << ev
-      @state_to_save["#{ev.path}//#{ev.dev}//#{ev.ino}"] = ev
-      if @buffer.size >= @flush_size || @delayed_flush && @request_queue.empty?
+      new_state = @request.empty? ? {} : @request.last_event.accumulated_state.clone
+      new_state["#{ev.path}::#{ev.dev}::#{ev.ino}"] = ev.pos
+      ev.accumulated_state = new_state
+      @request << ev
+      if @request.length >= @flush_size || @delayed_flush && @request_queue.empty?
         reset_flush
         send_events
       end
@@ -106,41 +108,19 @@ module LogCollector
 
     def send_events
       @delayed_flush = false
-      return if @buffer.empty?
+      return if @request.empty?
 
-      # format the message to send
-      msg = formatted_msg
-      serial = Time.now.to_f.to_s
-      state_update = @state_to_save.values
+      # the request to send
+      req = @request
 
-      # empty the buffers before returning to processing the event_queue
-      @buffer.clear
-      @state_to_save.clear
+      # create new request before returning to processing the event_queue
+      @request = Request.new(@hostname)
 
       # don't enqueue request if shutting down
       return if @shutdown
 
-      $logger.debug { "enqueue request serial=#{serial} (#{msg['n']} events)" }
-      @request_queue.push [serial, msg, state_update]
-    end
-
-    def formatted_msg
-      {
-        'host' => @hostname,
-        'n' => @buffer.length,
-        'events' => formatted_events
-      }
-    end
-
-    def formatted_events
-      @buffer.collect do |ev|
-        {
-          'ts' => ev.timestamp.to_f,
-          'file' => ev.path,
-          'msg' => ev.line,
-          'flds' => ev.fields
-        }
-      end
+      $logger.debug { "enqueue request=#{req}" }
+      @request_queue.push req
     end
 
   end # class Spooler

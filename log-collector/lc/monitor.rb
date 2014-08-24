@@ -73,7 +73,7 @@ module LogCollector
       monitor = JRubyNotify::Notify.new
       monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, file, newfile|
         Thread.current['name'] = 'monitor'
-        Thread.current.priority = 20
+        Thread.current.priority = 3
         begin
           unless file =~ /\/$/
             $logger.debug { %Q[#{path}: detected "#{file}" '#{change}' (#{newfile})] }

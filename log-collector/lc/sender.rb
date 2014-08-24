@@ -42,6 +42,7 @@ module LogCollector
       $logger.debug "schedule send requests"
       @send_thread = Thread.new do
         Thread.current['name'] = 'sender'
+        Thread.current.priority = 0
         loop do
           begin
             client_sock
@@ -67,12 +68,25 @@ module LogCollector
     end
 
     def process_request(req)
-      serial, msg, state_update = req
-      msg['serial'] = serial
-      data = Zlib::Deflate.deflate(msg.to_json)
+      first_unprocessed = 0
+      while first_unprocessed < req.length
+        processed = send_request req, first_unprocessed
+        # update event pointer
+        first_unprocessed += processed
+        # save state if any events were processed
+        @state_mgr.update_state req[first_unprocessed-1].accumulated_state if processed > 0
+        # return if shutting down
+        return if @shutdown
+      end
+    end
 
+    def send_request(req,first_unprocessed)
       # don't send request if shutting down
-      return if @shutdown
+      return 0 if @shutdown
+
+      msg = req.formatted_msg first_unprocessed
+      serial = msg['serial']
+      data = Zlib::Deflate.deflate(msg.to_json)
 
       $logger.info { "sending request serial=#{serial} (#{msg['n']} events)" }
       send_time = Time.now.to_f
@@ -83,13 +97,17 @@ module LogCollector
           rcvmsg = send data, serial
           if rcvmsg.length==2
             # [ serial, response ]
-            response = JSON.parse(rcvmsg[1])
-            if response.length==3 && response[0]=='ACK'
-              # exit the loop, save state and terminate the thread when ACK is received
-              break if response[1]==serial
-              $logger.error "got ACK for wrong serial: expecting #{serial} received #{response[1]}"
+            if rcvmsg[0]==serial
+              response = JSON.parse(rcvmsg[1])
+              # [ 'ACK', processed_events ]
+              if response.length==2 && response[0]=='ACK'
+                # exit the loop when ACK is received
+                break
+              else
+                $logger.error "got unexpected response: #{response}"
+              end
             else
-              $logger.error "got unexpected message: #{rcvmsg}"
+              $logger.error "got msg for wrong serial: expecting #{serial} received #{rcvmsg[0]}"
             end
           else
             $logger.error "got unexpected message: #{rcvmsg}"
@@ -104,9 +122,8 @@ module LogCollector
       end
       
       $logger.info { "<-- response from worker: #{response} roundtrip_time=%.2fs" % [Time.now.to_f - send_time] }
-      
-      # save state
-      @state_mgr.update_state state_update
+      # return number of processed events so we can re-send unprocessed events
+      response[1]
     end
 
     def client_sock

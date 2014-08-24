@@ -103,12 +103,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   end # def register
 
   def teardown
-    error_check(@zsocket.close, "while closing the zmq socket")
   end # def teardown
-
-  def context
-    @context
-  end
 
   def server?
     @mode == "server"
@@ -139,7 +134,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   # connected to the Paranoid Pirate queue
   def worker_socket(context, poller)
     worker = context.socket @zmq_const
-    worker.setsockopt ZMQ::LINGER, 0
+    worker.setsockopt ZMQ::LINGER, 10000 # wait for 10s for messages to be delivered
 
     if @sockopt
       setopts(worker, @sockopt)
@@ -196,22 +191,28 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 host = batch['host'].force_encoding(Encoding::UTF_8)
                 events = batch['events']
                 @logger.info "[log-collector] start processing client=#{clientid} serial=#{serial} events=#{events.length}"
-                events.each do |ev|
-                  data = {
-                    '@timestamp' => Time.at(ev['ts']),
-                    'host' => host,
-                    'file' => ev['file'].force_encoding(Encoding::UTF_8),
-                    'message' => ev['msg'].force_encoding(Encoding::UTF_8)
-                  }
-                  ev['flds'].each {|f,v| data[f] = v.force_encoding(Encoding::UTF_8)}
-                  block.call(data)
+                processed = 0
+                begin
+                  events.each do |ev|
+                    data = {
+                      '@timestamp' => Time.at(ev['ts']),
+                      'host' => host,
+                      'file' => ev['file'].force_encoding(Encoding::UTF_8),
+                      'message' => ev['msg'].force_encoding(Encoding::UTF_8)
+                    }
+                    ev['flds'].each {|f,v| data[f] = v.force_encoding(Encoding::UTF_8)}
+                    block.call(data)
+                    processed += 1
+                  end
+                ensure
+                  # Ensure that we send a message back to the client even if logstash is shutting down.
+                  # send an ACK back to client, specifying the number of processed events
+                  @zsocket.send_strings [clientid, '', serial, ['ACK',processed].to_json]
+                  last_msg_time = now = Time.now
+                  time_spent = now.to_f-start_time
+                  @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} processed =#{processed} time=%.2fs per_second=%.1f" % [time_spent, processed/time_spent]
                 end
 
-                # send an ACK back to client when finished
-                @zsocket.send_strings [clientid, '', serial, ['ACK',serial,batch['n']].to_json]
-                last_msg_time = now = Time.now
-                time_spent = now.to_f-start_time
-                @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} time=%.2fs per_second=%.1f" % [time_spent, events.length/time_spent]
               else
                 @logger.error "[log-collector] Invalid message: #{msgs}"
               end
@@ -233,7 +234,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
           @logger.debug "[log-collector] Reconnecting in #{interval}s"
 
           poller.deregister_readable @zsocket
-          @zsocket.close
+          error_check(@zsocket.close, "while closing the zmq socket")
 
           sleep interval
           interval *= 2 if interval < INTERVAL_MAX
@@ -251,7 +252,8 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
       @logger.debug("[log-collector] Error", :subscriber => @zsocket, :exception => e)
       retry
     ensure
-      @zsocket.close
+      error_check(@zsocket.close, "while closing the zmq socket")
+      error_check(@context.terminate, "while terminating context")
     end
   end
 

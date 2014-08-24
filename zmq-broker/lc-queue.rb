@@ -82,7 +82,7 @@ end
 def run
   context = ZMQ::Context.new
   frontend = context.socket ZMQ::ROUTER
-  frontend.setsockopt ZMQ::LINGER, 0
+  frontend.setsockopt ZMQ::LINGER, 10000 # wait for 10s for messages to be delivered
   backend = context.socket ZMQ::ROUTER
   backend.setsockopt ZMQ::LINGER, 0
 
@@ -120,7 +120,7 @@ def run
               $logger.debug "recv worker pong" if msgs[1]==PPP_PONG
               $logger.debug "recv worker ready" if msgs[1]==PPP_READY
             elsif msgs.length==5
-              # [workerid, clientid, '', serial, reply]
+              # [workerid, clientid, '', serial, response]
               # send reply back to client
               $logger.info "<-- response worker=#{workerid} to client=#{msgs[1]}, serial=#{msgs[3]}"
               frontend.send_strings msgs[1..-1]
