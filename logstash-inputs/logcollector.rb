@@ -103,6 +103,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   end # def register
 
   def teardown
+    error_check(@context.terminate, "while terminating context")
   end # def teardown
 
   def server?
@@ -253,7 +254,6 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
       retry
     ensure
       error_check(@zsocket.close, "while closing the zmq socket")
-      error_check(@context.terminate, "while terminating context")
     end
   end
 
