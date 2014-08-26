@@ -54,7 +54,6 @@ module LogCollector
         end
       end
 
-      # intitialize the filetail, this will also set the current position
       @collector_thread = Thread.new do
         Thread.current['name'] = 'collector'
         Thread.current.priority = 2
@@ -66,7 +65,7 @@ module LogCollector
         rescue OutOfMemoryError
           abort "Collector: exiting because of java.lang.OutOfMemoryError"
         rescue Exception => e
-          on_exception e
+          on_exception e, false
         end
       end
     end
@@ -182,7 +181,7 @@ module LogCollector
             multiline_flush
           end # case change
         rescue OutOfMemoryError
-          abort "Collector: exiting because of java.lang.OutOfMemoryError"
+          raise
         rescue Exception=>e
           on_exception e, false
         end
@@ -201,6 +200,8 @@ module LogCollector
         $logger.warning "#{@path}: file not found"
         @file = nil
         on_exception e
+      rescue OutOfMemoryError
+        raise
       end
       fstat = @file.stat
       @stat[:dev], @stat[:ino] = fstat.dev, fstat.ino
@@ -228,6 +229,8 @@ module LogCollector
         rescue EOFError, IOError
           $logger.debug "#{@path}: eof"
           return
+        rescue OutOfMemoryError
+          raise
         rescue Exception => e
           $logger.error("#{@path}: error reading")
           on_exception e

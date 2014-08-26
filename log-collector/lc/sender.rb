@@ -114,7 +114,7 @@ module LogCollector
           end
 
         rescue OutOfMemoryError
-          abort "Sender: exiting because of java.lang.OutOfMemoryError"
+          raise
         rescue Exception => e
           $logger.error "send/receive exception: #{e.message} rcvmsg=#{rcvmsg}"
           sleep @delay

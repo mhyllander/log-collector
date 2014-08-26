@@ -25,8 +25,10 @@ module LogCollector
         File.open(@state_file_new, 'w') { |file| file.write(json) }
         File.rename @state_file_new, @state_file
         $logger.info "saved state=#{json}"
+      rescue OutOfMemoryError
+        raise
       rescue Exception=>e
-        on_exception e, false
+        on_exception e
       end
     end
 
