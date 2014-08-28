@@ -92,6 +92,7 @@ module LogCollector
       send_time = Time.now.to_f
       response = nil
       loop do
+        return 0 if @shutdown
         begin
 
           rcvmsg = send data, serial

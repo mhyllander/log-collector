@@ -88,7 +88,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   public
   def register
     require "ffi-rzmq"
-    @context = ZMQ::Context.new
+    @zcontext = ZMQ::Context.new
 
     @logger.info("Starting log-collector input listener", :address => "#{@address}", :mode => "#{@mode}")
 
@@ -103,7 +103,6 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   end # def register
 
   def teardown
-    error_check(@context.terminate, "while terminating context")
   end # def teardown
 
   def server?
@@ -111,18 +110,22 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   end # def server?
 
   def run(output_queue)
-    run_worker do |data|
-      begin
-        event = LogStash::Event.new(data)
-        decorate(event)
-        output_queue << event
-      rescue LogStash::ShutdownSignal
-        # shutdown
-        return
-      rescue => e
-        @logger.debug("[log-collector] Error", :subscriber => @zsocket, :exception => e)
-        retry
-      end # begin
+    begin
+      run_worker do |data|
+        begin
+          event = LogStash::Event.new(data)
+          decorate(event)
+          output_queue << event
+        rescue LogStash::ShutdownSignal
+          raise
+        rescue => e
+          @logger.debug("[log-collector] Error", :subscriber => @zsocket, :exception => e)
+          retry
+        end # begin
+      end
+    rescue LogStash::ShutdownSignal
+      @logger.info("[log-collector] stopping work")
+      return
     end
   end # def run
 
@@ -135,7 +138,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   # connected to the Paranoid Pirate queue
   def worker_socket(context, poller)
     worker = context.socket @zmq_const
-    worker.setsockopt ZMQ::LINGER, 10000 # wait for 10s for messages to be delivered
+    worker.setsockopt ZMQ::LINGER, -1 # wait for messages to be delivered
 
     if @sockopt
       setopts(worker, @sockopt)
@@ -152,7 +155,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
 
   def run_worker(&block)
     poller = ZMQ::Poller.new
-    @zsocket = worker_socket context, poller
+    @zsocket = worker_socket @zcontext, poller
     last_msg_time = Time.now
 
     begin
@@ -205,13 +208,16 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                     block.call(data)
                     processed += 1
                   end
+                rescue LogStash::ShutdownSignal
+                  @logger.info "[log-collector] logstash is shutting down, doing a partial ACK"
+                  raise
                 ensure
                   # Ensure that we send a message back to the client even if logstash is shutting down.
                   # send an ACK back to client, specifying the number of processed events
                   @zsocket.send_strings [clientid, '', serial, ['ACK',processed].to_json]
                   last_msg_time = now = Time.now
                   time_spent = now.to_f-start_time
-                  @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} processed =#{processed} time=%.2fs per_second=%.1f" % [time_spent, processed/time_spent]
+                  @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} processed=#{processed} time=%.2fs per_second=%.1f" % [time_spent, processed/time_spent]
                 end
 
               else
@@ -240,20 +246,22 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
           sleep interval
           interval *= 2 if interval < INTERVAL_MAX
 
-          @zsocket = worker_socket context, poller
+          @zsocket = worker_socket @zcontext, poller
           last_msg_time = Time.now
           liveness = @ping_liveness
         end
 
       end # loop
     rescue LogStash::ShutdownSignal
-      # shutdown
-      return
+      raise
     rescue => e
       @logger.debug("[log-collector] Error", :subscriber => @zsocket, :exception => e)
       retry
     ensure
-      error_check(@zsocket.close, "while closing the zmq socket")
+      @logger.info("[log-collector] closing socket")
+      @zsocket.close
+      @logger.info("[log-collector] terminating context")
+      @zcontext.terminate
     end
   end
 

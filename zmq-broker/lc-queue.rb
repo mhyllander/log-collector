@@ -82,9 +82,9 @@ end
 def run
   context = ZMQ::Context.new
   frontend = context.socket ZMQ::ROUTER
-  frontend.setsockopt ZMQ::LINGER, 10000 # wait for 10s for messages to be delivered
+  frontend.setsockopt ZMQ::LINGER, -1 # wait for messages to clients to be delivered
   backend = context.socket ZMQ::ROUTER
-  backend.setsockopt ZMQ::LINGER, 0
+  backend.setsockopt ZMQ::LINGER, 0   # discard messages to workers
 
   $logger.info "frontend bind to #{$options[:frontend]}"
   frontend.bind $options[:frontend]

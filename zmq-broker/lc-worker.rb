@@ -19,7 +19,7 @@ INTERVAL_MAX  = 32
 def worker_socket(context, identity, poller)
   worker = context.socket ZMQ::DEALER
   worker.setsockopt ZMQ::IDENTITY, identity
-  worker.setsockopt ZMQ::LINGER, 10000 # wait for 10s for messages to be delivered
+  worker.setsockopt ZMQ::LINGER, -1 # wait for messages to be delivered
   poller.register_readable worker
   $logger.info "worker connect to #{$options[:queue]}"
   worker.connect $options[:queue]
