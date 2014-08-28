@@ -54,10 +54,9 @@ module LogCollector
         end
       end
 
-      # intitialize the filetail, this will also set the current position
-      @input_thread = Thread.new do
+      @collector_thread = Thread.new do
         Thread.current['name'] = 'collector'
-        Thread.current.priority = 10
+        Thread.current.priority = 2
         begin
           # resume reading the file from startpos
           resume_file fileconfig['startpos']
@@ -66,7 +65,7 @@ module LogCollector
         rescue OutOfMemoryError
           abort "Collector: exiting because of java.lang.OutOfMemoryError"
         rescue Exception => e
-          on_exception e
+          on_exception e, false
         end
       end
     end
@@ -74,7 +73,7 @@ module LogCollector
     def terminate
       $logger.info "terminating collector for #{@path}"
       @multiline_flush_thread.terminate if @multiline_flush_thread
-      @input_thread.terminate
+      @collector_thread.terminate
     end
 
     def resume_file(startpos)
@@ -182,7 +181,7 @@ module LogCollector
             multiline_flush
           end # case change
         rescue OutOfMemoryError
-          abort "Collector: exiting because of java.lang.OutOfMemoryError"
+          raise
         rescue Exception=>e
           on_exception e, false
         end
@@ -201,6 +200,8 @@ module LogCollector
         $logger.warning "#{@path}: file not found"
         @file = nil
         on_exception e
+      rescue OutOfMemoryError
+        raise
       end
       fstat = @file.stat
       @stat[:dev], @stat[:ino] = fstat.dev, fstat.ino
@@ -228,6 +229,8 @@ module LogCollector
         rescue EOFError, IOError
           $logger.debug "#{@path}: eof"
           return
+        rescue OutOfMemoryError
+          raise
         rescue Exception => e
           $logger.error("#{@path}: error reading")
           on_exception e

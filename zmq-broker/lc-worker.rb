@@ -19,7 +19,7 @@ INTERVAL_MAX  = 32
 def worker_socket(context, identity, poller)
   worker = context.socket ZMQ::DEALER
   worker.setsockopt ZMQ::IDENTITY, identity
-  worker.setsockopt ZMQ::LINGER, 0
+  worker.setsockopt ZMQ::LINGER, -1 # wait for messages to be delivered
   poller.register_readable worker
   $logger.info "worker connect to #{$options[:queue]}"
   worker.connect $options[:queue]
@@ -68,7 +68,7 @@ def run
             json = Zlib::Inflate.inflate(request)
             data = JSON.parse(json)
             $logger.debug "send ACK serial=#{serial} n=#{data['n']}"
-            worker.send_strings [clientid, '', serial, ['ACK',serial,data['n']].to_json]
+            worker.send_strings [clientid, '', serial, ['ACK',data['n']].to_json]
             last_sent = Time.now
           else
             $logger.error "Invalid message: #{msgs}"

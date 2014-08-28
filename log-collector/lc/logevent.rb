@@ -1,12 +1,8 @@
 module LogCollector
 
   class LogEvent
-    attr_reader :path
-    attr_reader :line
-    attr_reader :stat
-    attr_reader :pos
-    attr_reader :fields
-    attr_reader :timestamp
+    attr_reader :path, :line, :stat, :pos, :fields, :timestamp
+    attr_accessor :accumulated_state
 
     def initialize(path,line,stat,pos,fields)
       @path = path
