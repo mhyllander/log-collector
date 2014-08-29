@@ -12,12 +12,8 @@ module LogCollector
     def update_state(state_update)
       $logger.debug { "updating state: #{state_update}" }
 
-      state_update.each do |id,pos|
-        path, dev, ino = id.split(/::/)
-        @state[path] ||= {}
-        @state[path]['dev'] = dev
-        @state[path]['ino'] = ino
-        @state[path]['pos'] = pos
+      state_update.each do |path,state|
+        @state[path] = state
       end
 
       begin

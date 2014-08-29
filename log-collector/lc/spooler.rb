@@ -70,7 +70,7 @@ module LogCollector
 
     def process_event(ev)
       new_state = @request.empty? ? {} : @request.last_event.accumulated_state.clone
-      new_state["#{ev.path}::#{ev.dev}::#{ev.ino}"] = ev.pos
+      new_state[ev.path] = {dev: ev.dev, ino: ev.ino, pos: ev.pos}
       ev.accumulated_state = new_state
       @request << ev
       if @request.length >= @flush_size || @delayed_flush && @request_queue.empty?
