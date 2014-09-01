@@ -138,7 +138,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   # connected to the Paranoid Pirate queue
   def worker_socket(context, poller)
     worker = context.socket @zmq_const
-    worker.setsockopt ZMQ::LINGER, -1 # wait for messages to be delivered
+    worker.setsockopt ZMQ::LINGER, 60000 # wait for messages to be delivered
 
     if @sockopt
       setopts(worker, @sockopt)
