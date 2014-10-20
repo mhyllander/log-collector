@@ -130,10 +130,6 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   end # def run
 
   private
-  def build_source_string
-    id = @address.first.clone
-  end
-
   # Helper function that returns a new configured socket
   # connected to the Paranoid Pirate queue
   def worker_socket(context, poller)
@@ -156,7 +152,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
   def run_worker(&block)
     poller = ZMQ::Poller.new
     @zsocket = worker_socket @zcontext, poller
-    last_msg_time = Time.now
+    last_msg_time = idle_time = Time.now
 
     begin
       liveness = @ping_liveness
@@ -194,7 +190,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                 batch = JSON.parse(Zlib::Inflate.inflate(request))
                 host = batch['host'].force_encoding(Encoding::UTF_8)
                 events = batch['events']
-                @logger.info "[log-collector] start processing client=#{clientid} serial=#{serial} events=#{events.length}"
+                @logger.info "[log-collector] start processing client=#{clientid} serial=#{serial} events=#{events.length} (idle=%.2fs)" % [start_time-idle_time.to_f]
                 processed = 0
                 begin
                   events.each do |ev|
@@ -215,7 +211,7 @@ class LogStash::Inputs::LogCollector < LogStash::Inputs::Base
                   # Ensure that we send a message back to the client even if logstash is shutting down.
                   # send an ACK back to client, specifying the number of processed events
                   @zsocket.send_strings [clientid, '', serial, ['ACK',processed].to_json]
-                  last_msg_time = now = Time.now
+                  last_msg_time = idle_time = now = Time.now
                   time_spent = now.to_f-start_time
                   @logger.info "[log-collector] finished processing client=#{clientid} serial=#{serial} processed=#{processed} time=%.2fs per_second=%.1f" % [time_spent, processed/time_spent]
                 end
