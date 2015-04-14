@@ -13,7 +13,7 @@ module LogCollector
     Default_RecvTimeout = '60s'
 
     Default_Delimiter = "\n"
-    Default_DeadTime = '30s'
+    Default_DeadTime = '60s'
     Default_ChunkSize = 128*1024
 
     attr_reader :state
@@ -46,16 +46,8 @@ module LogCollector
         json_state = File.read(state_file)
         @state = JSON.parse(json_state)
 
-        # Remove old state keys that are not updated anymore, so they are not carried forward.
-        # TODO(mhy): remove this some time
-        @state.each do |path,state|
-          if state['inode']
-            state['ino'] = state['inode']
-            state.delete 'inode'
-          end
-          state.delete 'size'
-          state.delete 'mtime'
-        end
+        # remove states for files that are no longer being monitored
+        @state.keys.each {|p| @state.delete(p) unless @config['files'].include?(p)}
 
         @config['files'].each do |path,fc|
 
@@ -65,24 +57,30 @@ module LogCollector
             # get current file info
             file_info = get_file_info(path)
 
-            # have we been watching this file before?
+            # have we been monitoring this file before?
             if saved_state = @state[path]
 
               # is it the same file as before?
-              if file_info[:dev]== saved_state['dev'] && file_info[:ino]==saved_state['ino']
+              if file_info[:dev]==saved_state['dev'] && file_info[:ino]==saved_state['ino']
                 # same file
                 if file_info[:size] < saved_state['pos']
                   # file truncated, start at beginning
                   fc['startpos'] = 0
+                  $logger.info "#{path}: truncated, starting at beginning"
                 else
-                  # resume at the saved position
+                  # resume at saved position
                   fc['startpos'] = saved_state['pos']
+                  $logger.info "#{path}: resuming at saved position"
                 end
               else
                 # not same file, probably rotated, start at beginning
                 fc['startpos'] = 0
+                $logger.info "#{path}: not same file, probably rotated, starting at beginning"
               end
 
+            else # ! saved_state
+              # not monitored before, start at end
+              $logger.info "#{path}: not monitored before, starting from end"
             end # saved_state
 
           else # !file exists
@@ -90,7 +88,7 @@ module LogCollector
             fc['startpos'] = 0
             # delete any saved state for the file
             @state.delete path
-            $logger.debug "#{path} nonexistant, deleting state"
+            $logger.info "#{path}: nonexistant, deleting state"
           end
 
         end # file loop

@@ -30,7 +30,7 @@
       "exclude_re" : "DEBUG",                 # optional regex
       "chunksize" : 65536,		      # optional, default 128kb
       "delimiter" : "\r\n",		      # optional, default \n
-      "deadtime" : "60s"		      # optional, default 30s
+      "deadtime" : "120s"		      # optional, default 60s
     }
   }
 }

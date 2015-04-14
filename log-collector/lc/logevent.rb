@@ -28,6 +28,10 @@ module LogCollector
       @stat[:ino]
     end
 
+    def active
+      @stat[:active]
+    end
+
     def to_s
       %Q(LogEvent[#{path}(#{dev}/#{ino}): pos=#{@pos} log="#{@line[0..20]}"...])
     end
