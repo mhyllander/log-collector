@@ -73,32 +73,42 @@ request_queue = SizedQueue.new(1)
 @spooler = LogCollector::Spooler.new(config,event_queue,request_queue)
 @monitor = LogCollector::Monitor.new(config,event_queue)
 
+@shutdown_mutex = Mutex.new
+
 def shutdown
-  begin
-    @monitor.terminate
-  rescue Exception => e
-    on_exception e, false
-  end
-  begin
-    @spooler.terminate
-  rescue Exception => e
-    on_exception e, false
-  end
-  begin
-    @sender.terminate
-  rescue Exception => e
-    on_exception e, false
-  end
+  @shutdown_mutex.synchronize {
+    begin
+      @monitor.terminate if @monitor
+    rescue Exception => e
+      on_exception e, false
+    end
+    @monitor = nil
+    begin
+      @spooler.terminate if @spooler
+    rescue Exception => e
+      on_exception e, false
+    end
+    @spooler = nil
+    begin
+      @sender.terminate if @sender
+    rescue Exception => e
+      on_exception e, false
+    end
+    @sender = nil
+  }
 end
 
 Signal.trap("HUP") do
+  Thread.current['name'] = "SIGHUP-#{Thread.current.object_id}"
   $logger.info "caught HUP signal, ignoring"
 end
 Signal.trap("TERM") do
+  Thread.current['name'] = "SIGTERM-#{Thread.current.object_id}"
   $logger.info "caught TERM signal, shutting down"
   shutdown
 end
 Signal.trap("INT") do
+  Thread.current['name'] = "SIGINT-#{Thread.current.object_id}"
   $logger.info "caught INT signal, shutting down"
   shutdown
 end
