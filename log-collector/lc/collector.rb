@@ -113,11 +113,6 @@ module LogCollector
           $logger.debug "#{@path}: detected '#{change}'"
           case change
           when :modified
-            # Open the file if it was closed. This can happen if the file was deleted, then closed
-            # after the dead time had passed, and then was written to again.
-            # TODO(mhy): DELETED FILE: uncomment this if implementing a dead time for deleted files.
-            #open if @file.nil? || @file.closed?
-            
             if @file.size < @position
               # file has shrunk and is probably truncated
               $logger.info "#{@path}: truncated, start reading from beginning"
@@ -125,48 +120,30 @@ module LogCollector
               reset
             end
             read_to_eof
-          when :renamed
-            # File has presumably been rotated. Note that the writing application may continue to
-            # write for a short while to the old file before it is restarted or notified about the
-            # rotation. This currently solved by waiting for @deadtime to pass before reading one
-            # final time and then closing the file. After that a :created event is expected for when
-            # the log file is re-created. This a design decision to avoid having to monitor both old
-            # and new files simultaneously. With this design the old file will be finalized and
-            # closed before opening the new file.
-            $logger.info "#{@path}: renamed, finishing current before continuing with new file"
-            start_read = Time.now
+          when :renamed, :deleted, :replaced
+            # File has either been rotated, or deleted/replaced. Note that the writing application
+            # may continue to write for a short while to the old file before it is restarted or
+            # notified about the rotation. This currently solved by waiting for @deadtime to pass
+            # before reading one final time and then closing the file. A new collector will be
+            # started on the new file. This collector will finish off teh old file and then
+            # terminate.
+            $logger.info "#{@path}(#{@stat[:dev]}/#{@stat[:ino]}): #{change}, read data until dead"
+            @stat[:active] = false
+            # Continue reading from the file as long as their is new data, until @deatime has passed
+            # and no new data exists.
             read_to_eof
-            read_time = Time.now - start_read
-            # If final reading was very quick (i.e. we were already at eof), wait for the rest of
-            # @deadtime and check one more time for any more data before closing and waiting for the
-            # creation of a new file.
-            if read_time < @deadtime
-              sleep @deadtime-read_time
-              read_to_eof
-            end
+            begin
+              sleep @deadtime
+              $logger.info "#{@path}(#{@stat[:dev]}/#{@stat[:ino]}): read data, check if dead"
+            end while read_to_eof
             @file.close
-          when :deleted
-            # We don't really do anything about this. The file can still be open for writing even
-            # though it has been deleted, and we will receive :modified events if so. If the file is
-            # re-created we will receive a :created event, and we will then close the current file
-            # and open the new one.
-            # TODO(mhy): DELETED FILE: may want to implement a "dead time" interval to close and
-            # release the deleted file.
-            $logger.info "#{@path}: deleted, file kept open in case more is written to it"
+            $logger.info "#{@path}(#{@stat[:dev]}/#{@stat[:ino]}): pronounced dead, collector terminating"
+            Thread.current.exit
           when :created
             $logger.info "#{@path}: created, (re-)open from beginning"
             # (re-)open the file
             open
             # next event :modified follows immediately
-          when :replaced
-            # Some other file has replaced the one we were monitoring. Finish the current file,
-            # then open the new one.
-            $logger.info "#{@path}: replaced, read to eof and re-open from beginning"
-            # finish current file
-            read_to_eof
-            # re-open the file and start from beginning
-            open
-            read_to_eof
           when :check
             fstat = File.stat(@path) rescue nil
             if fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino])
@@ -193,6 +170,7 @@ module LogCollector
       @position = 0
       @stat = {}
       return unless File.exists?(@path)
+      @stat[:active] = true
       begin
         $logger.debug "#{@path}: opening file"
         @file = File.open(@path, "r")
@@ -221,14 +199,16 @@ module LogCollector
 
     def read_to_eof
       # loop until we reach EOF
+      read_data = false
       loop do
         data = nil
         $logger.debug "#{@path}: reading..."
         begin
           data = @file.sysread(@chunksize)
+          read_data = true
         rescue EOFError, IOError
           $logger.debug "#{@path}: eof"
-          return
+          return read_data
         rescue OutOfMemoryError
           raise
         rescue Exception => e

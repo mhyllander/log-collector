@@ -13,7 +13,11 @@ module LogCollector
       $logger.debug { "updating state: #{state_update}" }
 
       state_update.each do |path,state|
-        @state[path] = state
+        # If a file is rotated, the old collector will be marked as inactive and its state ignored.
+        if state[:active]
+          state.delete :active
+          @state[path] = state 
+        end
       end
 
       begin

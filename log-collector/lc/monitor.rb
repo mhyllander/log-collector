@@ -4,20 +4,22 @@ module LogCollector
     include ErrorUtils
 
     def initialize(config,event_queue)
+      @config = config
+      @event_queue = event_queue
       @collectors = {}
       @monitors = {}
 
-      config.files.each do |path,fc|
-        @collectors[path] = LogCollector::Collector.new(path,fc,event_queue)
+      @config.files.each do |path,fc|
+        @collectors[path] = LogCollector::Collector.new(path,fc,@event_queue)
       end
 
       setup_monitors
     end
 
     def terminate
+      cancel_monitors
       $logger.info "terminating collectors"
       @collectors.each {|rp,c| c.terminate}
-      cancel_monitors
     end
 
     def cancel_monitors
@@ -35,17 +37,17 @@ module LogCollector
         pn = Pathname.new(path)
 
         # get log dirs
-        dir, base = pn.split.map {|f| f.to_s}
+        dir, fn = pn.split.map {|p| p.to_s}
         logdirs[dir] ||= {}
-        logdirs[dir][base] = collector
+        logdirs[dir][fn] = collector
 
         # get all ancestors of log dirs
         pn = pn.parent
         until pn.root?
-          dir, base = pn.split.map {|f| f.to_s}
+          dir, subdir = pn.split.map {|p| p.to_s}
           ancestordirs[dir] ||= {}
-          ancestordirs[dir][base] ||= []
-          ancestordirs[dir][base] << collector
+          ancestordirs[dir][subdir] ||= []
+          ancestordirs[dir][subdir] << collector
           pn = pn.parent
         end
       end
@@ -72,10 +74,45 @@ module LogCollector
           # handle events on logfiles in dir
           if files
             unless entry =~ /\/$/
-              if (collector = files[entry])
-                collector.notify change
-              elsif change==:renamed && (collector = files[newentry])
-                collector.notify :replaced
+              case change
+              when :modified
+                if (collector = files[entry])
+                  # The log file has been modified. Notify the collector.
+                  collector.notify :modified
+                end
+              when :renamed
+                if (collector = files[entry])
+                  # The log file has been renamed. Forget about the collector and let it continue
+                  # until no more data is written to the file. The monitor will wait for the log
+                  # file to be created again.
+                  collector.notify :renamed
+                  forget_collector(path,entry)
+                  files[entry] = nil
+                elsif (collector = files[newentry])
+                  # The log file has been replaced by a new file. Forget about the collector and let
+                  # it continue until no more data is written to the old file, and start a new
+                  # collector on the new file.
+                  collector.notify :replaced
+                  files[newentry] = start_new_collector(path,newentry)
+                end
+              when :deleted
+                # The log file has been deleted. Forget about the collector and let it continue
+                # until no more data is written to the file. The monitor will wait for the log file
+                # to be created again.
+                if (collector = files[entry])
+                  collector.notify :deleted
+                  forget_collector(path,entry)
+                  files[entry] = nil
+                end
+              when :created
+                # A file has been created. Check if the file is being monitored. If no collector
+                # exists for the file (it may have been deleted or renamed previously), create a new
+                # collector.
+                if files.include?(entry)
+                  collector = files[entry]
+                  collector = files[entry] = start_new_collector(path,entry) unless collector
+                  collector.notify :created
+                end
               end
             end
           end
@@ -113,6 +150,21 @@ module LogCollector
       monitor.run
       $logger.info { %Q[watching "#{dir}" for notifications about files #{files ? files.keys : []} ancestors_in_dir=#{ancestors_in_dir ? ancestors_in_dir.keys : []}] }
       monitor
+    end
+
+    def forget_collector(dir,fn)
+      pn = Pathname.new(dir) + fn
+      path = pn.to_s
+      @collectors[path] = nil
+    end
+
+    def start_new_collector(dir,fn)
+      pn = Pathname.new(dir) + fn
+      path = pn.to_s
+      # start new collector at beginning of file
+      fileconfig = @config.files[path]
+      fileconfig['startpos'] = 0
+      @collectors[path] = LogCollector::Collector.new(path,fileconfig,@event_queue)
     end
 
     def check_and_restart_monitors(collectors)
