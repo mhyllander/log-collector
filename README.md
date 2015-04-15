@@ -8,8 +8,7 @@ more logstash indexers.
 
 Features:
 
-* Handles log file rotation. The old log file is finished before starting with
-  the new one.
+* Handles log file rotation.
 * Includes a multiline filter that can append continuation lines.
 * Sends batches of log events to logstash, then waits for an ACK before it
   saves an updated state.
