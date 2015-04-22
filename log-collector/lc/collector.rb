@@ -140,7 +140,7 @@ module LogCollector
             end while read_to_eof
             @file.close
             $logger.info "#{@collector_id}: pronounced dead, collector terminating"
-            @monitor.forget_old_collector this
+            @monitor.forget_old_collector self
             Thread.current.exit
           when :created
             $logger.info %Q[#{@collector_id}: "#{notification}", (re-)open from beginning]
