@@ -7,10 +7,11 @@ module LogCollector
       @config = config
       @event_queue = event_queue
       @collectors = {}
+      @old_collectors = []
       @monitors = {}
 
       @config.files.each do |path,fc|
-        @collectors[path] = LogCollector::Collector.new(path,fc,@event_queue)
+        @collectors[path] = LogCollector::Collector.new(path,fc,@event_queue,self)
       end
 
       setup_monitors
@@ -20,6 +21,7 @@ module LogCollector
       cancel_monitors
       $logger.info "terminating collectors"
       @collectors.each {|rp,c| c.terminate}
+      @old_collectors.each {|c| c.terminate}
     end
 
     def cancel_monitors
@@ -155,7 +157,14 @@ module LogCollector
     def forget_collector(dir,fn)
       pn = Pathname.new(dir) + fn
       path = pn.to_s
-      @collectors[path] = nil
+      if (collector = @collectors[path])
+        @old_collectors << collector
+        @collectors[path] = nil
+      end
+    end
+
+    def forget_old_collector(collector)
+      @old_collectors.delete collector
     end
 
     def start_new_collector(dir,fn)
@@ -164,7 +173,7 @@ module LogCollector
       # start new collector at beginning of file
       fileconfig = @config.files[path]
       fileconfig['startpos'] = 0
-      @collectors[path] = LogCollector::Collector.new(path,fileconfig,@event_queue)
+      @collectors[path] = LogCollector::Collector.new(path,fileconfig,@event_queue,self)
     end
 
     def check_and_restart_monitors(collectors)

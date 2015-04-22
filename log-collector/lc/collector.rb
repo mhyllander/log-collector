@@ -5,10 +5,11 @@ module LogCollector
 
     FORCE_ENCODING = !! (defined? Encoding)
 
-    def initialize(path,fileconfig,event_queue)
+    def initialize(path,fileconfig,event_queue,monitor)
       @path = path
       @fileconfig = fileconfig
       @event_queue = event_queue
+      @monitor = monitor
 
       @notification_queue = Queue.new
       @last_notification = nil
@@ -25,6 +26,7 @@ module LogCollector
       @file = nil
       @position = 0
       @stat = {}
+      @collector_id = @path
 
       @multiline = false
       @multiline_re = nil
@@ -71,7 +73,7 @@ module LogCollector
     end
 
     def terminate
-      $logger.info "terminating collector for #{@path}"
+      $logger.info "#{@collector_id}: terminating"
       @multiline_flush_thread.terminate if @multiline_flush_thread
       @collector_thread.terminate
     end
@@ -80,11 +82,11 @@ module LogCollector
       if File.exists?(@path)
         open
         if (startpos == -1)
-          $logger.info "#{@path}: opened, start reading from end"
+          $logger.info "#{@collector_id}: opened, start reading from end"
           @position = @file.sysseek(0, IO::SEEK_END)
           reset
         else
-          $logger.info "#{@path}: opened, start reading from pos #{startpos}"
+          $logger.info "#{@collector_id}: opened, start reading from pos #{startpos}"
           @position = @file.sysseek(startpos, IO::SEEK_SET)
           reset
           read_to_eof
@@ -108,46 +110,47 @@ module LogCollector
     # check file:    :check
     def monitor_file
       loop do
-        change = @notification_queue.pop
+        notification = @notification_queue.pop
         begin
-          $logger.debug "#{@path}: detected '#{change}'"
-          case change
+          $logger.debug %Q[#{@collector_id}: notification="#{notification}"]
+          case notification
           when :modified
             if @file.size < @position
               # file has shrunk and is probably truncated
-              $logger.info "#{@path}: truncated, start reading from beginning"
+              $logger.info "#{@collector_id}: truncated, start reading from beginning"
               @position = @file.sysseek(0, IO::SEEK_SET)
               reset
             end
             read_to_eof
           when :renamed, :deleted, :replaced
             # File has either been rotated, or deleted/replaced. Note that the writing application
-            # may continue to write for a short while to the old file before it is restarted or
-            # notified about the rotation. This currently solved by waiting for @deadtime to pass
-            # before reading one final time and then closing the file. A new collector will be
-            # started on the new file. This collector will finish off teh old file and then
-            # terminate.
-            $logger.info "#{@path}(#{@stat[:dev]}/#{@stat[:ino]}): #{change}, read data until dead"
+            # may continue to write for a while to the old file before it is restarted or notified
+            # about the rotation. This collector will continue reading from the old file
+            # periodically until no data has been written during the last @deadtime interval. The
+            # collector will then close the file and terminate. A new collector will (eventually) be
+            # started to read the new file.
+            $logger.info %Q[#{@collector_id}: "#{notification}", read data until dead]
             @stat[:active] = false
-            # Continue reading from the file as long as their is new data, until @deatime has passed
+            # Continue reading from the file as long as there is new data, until @deatime has passed
             # and no new data exists.
             read_to_eof
             begin
               sleep @deadtime
-              $logger.info "#{@path}(#{@stat[:dev]}/#{@stat[:ino]}): read data, check if dead"
+              $logger.info "#{@collector_id}: check for new data"
             end while read_to_eof
             @file.close
-            $logger.info "#{@path}(#{@stat[:dev]}/#{@stat[:ino]}): pronounced dead, collector terminating"
+            $logger.info "#{@collector_id}: pronounced dead, collector terminating"
+            @monitor.forget_old_collector this
             Thread.current.exit
           when :created
-            $logger.info "#{@path}: created, (re-)open from beginning"
+            $logger.info %Q[#{@collector_id}: "#{notification}", (re-)open from beginning]
             # (re-)open the file
             open
             # next event :modified follows immediately
           when :check
             fstat = File.stat(@path) rescue nil
             if fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino])
-              $logger.info "#{@path}: file appears to be new, re-open and start from beginning"
+              $logger.info "#{@collector_id}: file appears to be new, re-open and start from beginning"
               # finish current file
               read_to_eof
               # re-open the file and start from beginning
@@ -156,7 +159,7 @@ module LogCollector
             end
           when :flush
             multiline_flush
-          end # case change
+          end # case notification
         rescue OutOfMemoryError
           raise
         rescue Exception=>e
@@ -169,13 +172,14 @@ module LogCollector
       @file.close if @file && !@file.closed?
       @position = 0
       @stat = {}
+      @collector_id = @path
       return unless File.exists?(@path)
       @stat[:active] = true
       begin
-        $logger.debug "#{@path}: opening file"
+        $logger.debug "#{@collector_id}: opening file"
         @file = File.open(@path, "r")
       rescue Errno::ENOENT => e
-        $logger.warning "#{@path}: file not found"
+        $logger.warning "#{@collector_id}: file not found"
         @file = nil
         on_exception e
       rescue OutOfMemoryError
@@ -183,18 +187,19 @@ module LogCollector
       end
       fstat = @file.stat
       @stat[:dev], @stat[:ino] = fstat.dev, fstat.ino
-      $logger.debug "#{@path}: stat=#{@stat}"
+      @collector_id = "#{@path}(#{@stat[:dev]}/#{@stat[:ino]})"
+      $logger.debug "#{@collector_id}: stat=#{@stat}"
       reset
     end
 
     def reset
-      $logger.debug { "#{@path}: reset (buffer #{@buffer.empty? ? 'is empty' : 'has data'})" }
+      $logger.debug { "#{@collector_id}: reset (buffer #{@buffer.empty? ? 'is empty' : 'has data'})" }
       # take care of any unfinished line in the buffer before starting at the new position
       remaining = @buffer.flush.chomp
       enqueue_line remaining unless remaining.empty?
       # set the current line position
       @linepos = @position
-      $logger.info "#{@path}: reset, pos=#{@linepos}"
+      $logger.info "#{@collector_id}: reset, pos=#{@linepos}"
     end
 
     def read_to_eof
@@ -202,17 +207,17 @@ module LogCollector
       read_data = false
       loop do
         data = nil
-        $logger.debug "#{@path}: reading..."
+        $logger.debug "#{@collector_id}: reading..."
         begin
           data = @file.sysread(@chunksize)
           read_data = true
         rescue EOFError, IOError
-          $logger.debug "#{@path}: eof"
+          $logger.debug "#{@collector_id}: eof"
           return read_data
         rescue OutOfMemoryError
           raise
         rescue Exception => e
-          $logger.error("#{@path}: error reading")
+          $logger.error("#{@collector_id}: error reading")
           on_exception e
         end
 
@@ -244,7 +249,7 @@ module LogCollector
         multiline_process line
       else
         ev = new_event line
-        $logger.debug { "#{@path}: enqueue ev=#{ev}" }
+        $logger.debug { "#{@collector_id}: enqueue ev=#{ev}" }
         @event_queue.push ev
       end
     end
