@@ -44,7 +44,7 @@ module LogCollector
       @state = {}
       if File.file? state_file
         json_state = File.read(state_file)
-        @state = JSON.parse(json_state)
+        @state = JSON.parse(json_state) rescue {}
 
         # remove states for files that are no longer being monitored
         @state.keys.each {|p| @state.delete(p) unless @config['files'].include?(p)}
