@@ -64,7 +64,7 @@ end
 parser.parse!
 
 $logger = LogCollector::Logger.new options[:syslog], parser.program_name, ($DEBUG ? 'DEBUG' : options[:loglevel])
-$logger.debug("Debugging #{$logger.id}...")
+$logger.debug("Debugging #{$logger.process_id}...")
 
 config = LogCollector::Config.new(options[:configfile])
 event_queue = SizedQueue.new(config.queue_size)

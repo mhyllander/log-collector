@@ -5,6 +5,8 @@ module LogCollector
 
     FORCE_ENCODING = !! (defined? Encoding)
 
+    attr_reader :path,:stat,:position
+
     def initialize(path,fileconfig,event_queue,monitor)
       @path = path
       @fileconfig = fileconfig
@@ -44,6 +46,7 @@ module LogCollector
 
         @multiline_flush_thread = Thread.new do
           Thread.current['name'] = 'collector/flush'
+          Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
           loop do
             begin
               multiline_schedule_flush_held_ev
@@ -58,6 +61,7 @@ module LogCollector
 
       @collector_thread = Thread.new do
         Thread.current['name'] = 'collector'
+        Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
         Thread.current.priority = 2
         begin
           # resume reading the file from startpos

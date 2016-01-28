@@ -32,6 +32,7 @@ module LogCollector
       $logger.debug "schedule process events"
       @spool_thread = Thread.new do
         Thread.current['name'] = 'spooler'
+        Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
         Thread.current.priority = 1
         loop do
           begin

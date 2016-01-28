@@ -55,7 +55,7 @@ module LogCollector
       end
 
       # start monitors
-      [logdirs.keys, ancestordirs.keys].flatten.uniq.each do |dir|
+      (logdirs.keys | ancestordirs.keys).uniq.each do |dir|
         @monitors[dir] = start_monitor(dir, logdirs[dir], ancestordirs[dir])
       end
     end
@@ -95,6 +95,7 @@ module LogCollector
                   # it continue until no more data is written to the old file, and start a new
                   # collector on the new file.
                   collector.notify :replaced
+                  forget_collector(path,newentry)
                   files[newentry] = start_new_collector(path,newentry)
                 end
               when :deleted
@@ -111,8 +112,7 @@ module LogCollector
                 # exists for the file (it may have been deleted or renamed previously), create a new
                 # collector.
                 if files.include?(entry)
-                  collector = files[entry]
-                  collector = files[entry] = start_new_collector(path,entry) unless collector
+                  collector = files[entry] ||= start_new_collector(path,entry)
                   collector.notify :created
                 end
               end
@@ -163,6 +163,7 @@ module LogCollector
       end
     end
 
+    # called by an old collector when it reaches EOF terminates
     def forget_old_collector(collector)
       @old_collectors.delete collector
     end
@@ -170,6 +171,7 @@ module LogCollector
     def start_new_collector(dir,fn)
       pn = Pathname.new(dir) + fn
       path = pn.to_s
+      $logger.info { %Q[starting new collector on #{path}] }
       # start new collector at beginning of file
       fileconfig = @config.files[path]
       fileconfig['startpos'] = 0

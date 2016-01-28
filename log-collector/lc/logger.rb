@@ -8,13 +8,14 @@ module LogCollector
     LEVEL_INFO    = 3
     LEVEL_DEBUG   = 4
 
-    attr_reader :id
+    attr_reader :process_id
 
     def initialize(syslog,program,level)
       @program = program
-      @id = "#{program}[#{Process.pid}]"
+      @process_id = "#{program}[#{Process.pid}]"
       @level = LEVELS.index(level)
       @level = LEVELS.index('WARN') if @level.nil?
+      @sync = Mutex.new
       if syslog
         require 'syslog'
         Syslog.open(program, Syslog::LOG_PID, Syslog::LOG_DAEMON)
@@ -59,11 +60,21 @@ module LogCollector
     private
 
     def syslog(prio,msg)
-      Syslog.log @prio[prio], "@#{Thread.current['name']} [#{LEVELS[prio]}] #{msg}".gsub(/%/,'%%')
+      @sync.synchronize do
+        Syslog.log @prio[prio], "@#{get_thread_id} [#{LEVELS[prio]}] #{msg}".gsub(/%/,'%%')
+      end
     end
 
     def filelog(prio,msg)
-      @file.puts "#{Time.now.to_datetime.iso8601} #{@id}: @#{Thread.current['name']} [#{LEVELS[prio]}] #{msg}"
+      @sync.synchronize do
+        @file.puts "#{Time.now.to_datetime.iso8601} #{@process_id}: @#{get_thread_id} [#{LEVELS[prio]}] #{msg}"
+      end
+    end
+
+    def get_thread_id
+      thread_id = "#{Thread.current['name']}-#{Thread.current.object_id}"
+      thread_id << "/#{Thread.current['started']}" if Thread.current['started']
+      thread_id
     end
 
   end

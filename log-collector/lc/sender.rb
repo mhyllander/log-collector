@@ -42,6 +42,7 @@ module LogCollector
       $logger.debug "schedule send requests"
       @send_thread = Thread.new do
         Thread.current['name'] = 'sender'
+        Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
         Thread.current.priority = 0
         loop do
           begin
