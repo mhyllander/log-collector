@@ -20,8 +20,8 @@ Features:
 Log-collector is written for JRuby, and uses the ffi-rzmq and jruby-notify
 gems. Jruby-notify has been enhanced and modified to support 64-bit Linux.
 
-Currently log-collector used ZeroMQ 4.0.5 and ffi-rzmq 2.0.1. The version
-bundled with logstash 1.4.2 is too old, therefore ffi-rzmq 2.0.1 needs to be
+Currently log-collector used ZeroMQ 4.1.4 and ffi-rzmq 2.0.4. The version
+bundled with logstash 1.4.2 is too old, therefore ffi-rzmq 2.0.4 needs to be
 added to the JRuby that comes with logstash (see below).
 
 A logcollector input is provided for logstash, which needs to be saved to the
@@ -51,23 +51,46 @@ Install latest ffi-rzmq gem in Logstash's JRuby bundle
 ------------------------------------------------------
 
 ```bash
-cd logstash-1.4.1/vendor
-GEM_HOME=$PWD/bundle/jruby/1.9 GEM_PATH=$PWD/bundle/jruby/1.9 java -jar jar/jruby-complete-1.7.11.jar -S gem install -v 2.0.1 ffi-rzmq
+cd logstash-1.4.2/vendor
+GEM_HOME=$PWD/bundle/jruby/1.9 GEM_PATH=$PWD/bundle/jruby/1.9 java -jar jar/jruby-complete-1.7.11.jar -S gem install -v 2.0.4 ffi-rzmq
 ```
 
-Create ZeroMQ deb package
--------------------------
+Create libsodium and zeromq deb packages
+----------------------------------------
+
+Install pre-requisite packages:
 
 ```bash
-sudo apt-get install libtool autoconf automake uuid-dev build-essential
+sudo apt-get install libtool pkg-config autoconf automake uuid-dev build-essential
 sudo gem install fpm
+```
+
+Build libsodium package:
+
+```bash
 cd ~
-wget http://download.zeromq.org/zeromq-4.0.5.tar.gz
-tar zxvf zeromq-4.0.5.tar.gz && cd zeromq-4.0.5
-./configure
-make
+git clone git://github.com/jedisct1/libsodium.git
+cd libsodium
+git checkout 1.0.8
+./autogen.sh
+./configure && make check
+make install DESTDIR=/tmp/sodiuminst
+cat > ldconfig.sh
+#!/bin/bash
+exec ldconfig
+Ctrl-D
+fpm -s dir -t deb -n libsodium -v 1.0.8 --after-install ldconfig.sh --after-remove ldconfig.sh -C /tmp/sodiuminst -p libsodium-VERSION_ARCH.deb usr/local
+```
+
+Build zeromq package:
+
+```bash
+cd ~
+wget http://download.zeromq.org/zeromq-4.1.4.tar.gz
+tar zxvf zeromq-4.1.4.tar.gz && cd zeromq-4.1.4
+./configure && make
 make install DESTDIR=/tmp/zmqinst
-fpm -s dir -t deb -n zeromq -v 4.0.5 -C /tmp/zmqinst -p zeromq-VERSION_ARCH.deb usr/local
+fpm -s dir -t deb -n zeromq -v 4.1.4 -d libsodium -C /tmp/zmqinst -p zeromq-VERSION_ARCH.deb usr/local
 ```
 
 Create log-collector deb package
@@ -76,5 +99,5 @@ Create log-collector deb package
 ```bash
 sudo gem install fpm
 cd log-collector
-fpm -s dir -t deb -n log-collector-jruby -v 0.4.0 -a amd64 --prefix opt/log-collector/ -p log-collector-jruby-VERSION_ARCH.deb README.md bin log-collector bundle zmq-broker logstash-inputs
+fpm -s dir -t deb -n log-collector-jruby -v 0.4.0 -a amd64 -d zeromq --prefix opt/log-collector/ -p log-collector-jruby-VERSION_ARCH.deb README.md bin log-collector bundle zmq-broker logstash-inputs
 ```

@@ -1,16 +1,19 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    ffi (1.9.3)
-    ffi-rzmq (2.0.1)
+    ffi (1.9.10)
+    ffi (1.9.10-java)
+    ffi-rzmq (2.0.4)
       ffi-rzmq-core (>= 1.0.1)
-    ffi-rzmq-core (1.0.3)
+    ffi-rzmq-core (1.0.4)
       ffi (~> 1.9)
-    json (1.8.1)
+    json (1.8.3)
+    json (1.8.3-java)
     logger (1.2.8)
     orderedhash (0.0.6)
 
 PLATFORMS
+  java
   ruby
 
 DEPENDENCIES
@@ -18,3 +21,6 @@ DEPENDENCIES
   json
   logger
   orderedhash
+
+BUNDLED WITH
+   1.10.6
