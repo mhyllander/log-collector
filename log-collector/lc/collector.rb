@@ -60,8 +60,8 @@ module LogCollector
       end
 
       @collector_thread = Thread.new do
-        Thread.current['name'] = 'collector'
-        Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
+        Thread.current[:name] = 'collector'
+        Thread.current[:started] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
         Thread.current.priority = 2
         begin
           # resume reading the file from startpos
@@ -88,11 +88,13 @@ module LogCollector
         if (startpos == -1)
           $logger.info "#{@collector_id}: opened, start reading from end"
           @position = @file.sysseek(0, IO::SEEK_END)
-          reset
+          flush
         else
           $logger.info "#{@collector_id}: opened, start reading from pos #{startpos}"
-          @position = @file.sysseek(startpos, IO::SEEK_SET)
-          reset
+          if startpos != @position
+            @position = @file.sysseek(startpos, IO::SEEK_SET)
+            flush
+          end
           read_to_eof
         end
       end
@@ -123,7 +125,7 @@ module LogCollector
               # file has shrunk and is probably truncated
               $logger.info "#{@collector_id}: truncated, start reading from beginning"
               @position = @file.sysseek(0, IO::SEEK_SET)
-              reset
+              flush
             end
             read_to_eof
           when :renamed, :deleted, :replaced
@@ -134,7 +136,6 @@ module LogCollector
             # collector will then close the file and terminate. A new collector will (eventually) be
             # started to read the new file.
             $logger.info %Q[#{@collector_id}: "#{notification}", read data until dead]
-            @stat[:active] = false
             # Continue reading from the file as long as there is new data, until @deatime has passed
             # and no new data exists.
             read_to_eof
@@ -153,7 +154,7 @@ module LogCollector
             # next event :modified follows immediately
           when :check
             fstat = File.stat(@path) rescue nil
-            if fstat && (fstat.dev!=@stat[:dev] || fstat.ino!=@stat[:ino])
+            if fstat && (fstat.dev!=@stat['dev'] || fstat.ino!=@stat['ino'])
               $logger.info "#{@collector_id}: file appears to be new, re-open and start from beginning"
               # finish current file
               read_to_eof
@@ -178,7 +179,6 @@ module LogCollector
       @stat = {}
       @collector_id = @path
       return unless File.exists?(@path)
-      @stat[:active] = true
       begin
         $logger.debug "#{@collector_id}: opening file"
         @file = File.open(@path, "r")
@@ -190,20 +190,20 @@ module LogCollector
         raise
       end
       fstat = @file.stat
-      @stat[:dev], @stat[:ino] = fstat.dev, fstat.ino
-      @collector_id = "#{@path}(#{@stat[:dev]}/#{@stat[:ino]})"
+      @stat = {'dev' => fstat.dev, 'ino' => fstat.ino}
+      @collector_id = "#{@path}(#{@stat['dev']}/#{@stat['ino']})"
       $logger.debug "#{@collector_id}: stat=#{@stat}"
-      reset
+      flush
     end
 
-    def reset
-      $logger.debug { "#{@collector_id}: reset (buffer #{@buffer.empty? ? 'is empty' : 'has data'})" }
+    def flush
+      $logger.debug { "#{@collector_id}: flush (buffer #{@buffer.empty? ? 'is empty' : 'has data'})" }
       # take care of any unfinished line in the buffer before starting at the new position
       remaining = @buffer.flush.chomp
       enqueue_line remaining unless remaining.empty?
       # set the current line position
       @linepos = @position
-      $logger.info "#{@collector_id}: reset, pos=#{@linepos}"
+      $logger.info "#{@collector_id}: flush, pos=#{@linepos}"
     end
 
     def read_to_eof

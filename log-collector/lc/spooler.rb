@@ -31,8 +31,8 @@ module LogCollector
     def schedule_process_events
       $logger.debug "schedule process events"
       @spool_thread = Thread.new do
-        Thread.current['name'] = 'spooler'
-        Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
+        Thread.current[:name] = 'spooler'
+        Thread.current[:started] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
         Thread.current.priority = 1
         loop do
           begin
@@ -70,9 +70,9 @@ module LogCollector
     end
 
     def process_event(ev)
-      new_state = @request.empty? ? {} : @request.last_event.accumulated_state.clone
-      new_state[ev.path] = {dev: ev.dev, ino: ev.ino, pos: ev.pos, active: ev.active}
-      ev.accumulated_state = new_state
+      ev.accumulated_state = @request.empty? ? {} : @request.last_event.accumulated_state.clone
+      file_id = "#{ev.path}:#{ev.dev}:#{ev.ino}"
+      ev.accumulated_state[file_id] = {'dev' => ev.dev, 'ino' => ev.ino, 'pos' => ev.pos}
       @request << ev
       if @request.length >= @flush_size || @delayed_flush && @request_queue.empty?
         reset_flush
@@ -83,7 +83,7 @@ module LogCollector
     def schedule_flush
       $logger.debug "schedule flush timer"
       @flush_thread = Thread.new do
-        Thread.current['name'] = 'spooler/flush'
+        Thread.current[:name] = 'spooler/flush'
         loop do
           begin
             # loop until a full @flush_interval has been slept

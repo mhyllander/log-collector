@@ -3,14 +3,17 @@ module LogCollector
   class Monitor
     include ErrorUtils
 
-    def initialize(config,event_queue)
+    def initialize(config,event_queue,state_mgr)
       @config = config
       @event_queue = event_queue
+      @state_mgr = state_mgr
+
       @collectors = {}
       @old_collectors = []
       @monitors = {}
 
       @config.files.each do |path,fc|
+        set_active(path)
         @collectors[path] = LogCollector::Collector.new(path,fc,@event_queue,self)
       end
 
@@ -69,7 +72,7 @@ module LogCollector
       $logger.debug { %Q[start_monitor: #{dir} files=#{files} ancestors_in_dir=#{ancestors_in_dir}] }
       monitor = JRubyNotify::Notify.new
       monitor.watch(dir, JRubyNotify::FILE_ANY, false) do |change, path, entry, newentry|
-        Thread.current['name'] = 'monitor'
+        Thread.current[:name] = 'monitor'
         Thread.current.priority = 3
         begin
           $logger.debug { %Q[#{path}: detected '#{change}' "#{entry}" (#{newentry})] }
@@ -78,19 +81,19 @@ module LogCollector
             unless entry =~ /\/$/
               case change
               when :modified
-                if (collector = files[entry])
+                if collector = files[entry]
                   # The log file has been modified. Notify the collector.
                   collector.notify :modified
                 end
               when :renamed
-                if (collector = files[entry])
+                if collector = files[entry]
                   # The log file has been renamed. Forget about the collector and let it continue
                   # until no more data is written to the file. The monitor will wait for the log
                   # file to be created again.
                   collector.notify :renamed
                   forget_collector(path,entry)
                   files[entry] = nil
-                elsif (collector = files[newentry])
+                elsif collector = files[newentry]
                   # The log file has been replaced by a new file. Forget about the collector and let
                   # it continue until no more data is written to the old file, and start a new
                   # collector on the new file.
@@ -102,7 +105,7 @@ module LogCollector
                 # The log file has been deleted. Forget about the collector and let it continue
                 # until no more data is written to the file. The monitor will wait for the log file
                 # to be created again.
-                if (collector = files[entry])
+                if collector = files[entry]
                   collector.notify :deleted
                   forget_collector(path,entry)
                   files[entry] = nil
@@ -112,8 +115,12 @@ module LogCollector
                 # exists for the file (it may have been deleted or renamed previously), create a new
                 # collector.
                 if files.include?(entry)
-                  collector = files[entry] ||= start_new_collector(path,entry)
-                  collector.notify :created
+                  collector = files[entry]
+                  if collector
+                    collector.notify :created
+                  else
+                    files[entry] = start_new_collector(path,entry)
+                  end
                 end
               end
             end
@@ -122,22 +129,22 @@ module LogCollector
           if ancestors_in_dir
             case change
             when :created
-              if (collectors = ancestors_in_dir[entry])
+              if collectors = ancestors_in_dir[entry]
                 # base was re-created
                 check_and_restart_monitors collectors
               end
             when :renamed
               # base was renamed, or another dir was renamed to base
-              if (collectors = ancestors_in_dir[entry])       # like a delete
+              if collectors = ancestors_in_dir[entry]       # like a delete
                 # if an ancestor was deleted we just keep on reading the open file
                 # and monitor for the re-creation of the ancestor/directory
-              elsif (collectors = ancestors_in_dir[newentry]) # like a create
+              elsif collectors = ancestors_in_dir[newentry] # like a create
                 # base was re-created
                 check_and_restart_monitors collectors
               end
             when :deleted
               # base was deleted
-              if (collectors = ancestors_in_dir[entry])
+              if collectors = ancestors_in_dir[entry]
                 # if an ancestor was deleted we just keep on reading the open file
                 # and monitor for the re-creation of the ancestor/directory
               end
@@ -163,7 +170,7 @@ module LogCollector
       end
     end
 
-    # called by an old collector when it reaches EOF terminates
+    # called by an old collector when it reaches EOF and terminates
     def forget_old_collector(collector)
       @old_collectors.delete collector
     end
@@ -175,7 +182,13 @@ module LogCollector
       # start new collector at beginning of file
       fileconfig = @config.files[path]
       fileconfig['startpos'] = 0
+      set_active(path)
       @collectors[path] = LogCollector::Collector.new(path,fileconfig,@event_queue,self)
+    end
+
+    def set_active(path)
+      fstat = File.stat(path)
+      @state_mgr.active_file path, {'dev' => fstat.dev, 'ino' => fstat.ino}
     end
 
     def check_and_restart_monitors(collectors)

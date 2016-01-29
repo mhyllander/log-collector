@@ -21,15 +21,11 @@ module LogCollector
     end
 
     def dev
-      @stat[:dev]
+      @stat['dev']
     end
 
     def ino
-      @stat[:ino]
-    end
-
-    def active
-      @stat[:active]
+      @stat['ino']
     end
 
     def to_s

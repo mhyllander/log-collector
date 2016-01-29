@@ -5,13 +5,12 @@ module LogCollector
 
     attr_reader :send_thread
 
-    def initialize(config,clientid,request_queue)
+    def initialize(config,clientid,request_queue,state_mgr)
       @hostname = config.hostname
       @servers = config.servers
       @clientid = clientid || ("C:%04X-%04X" % [(rand()*0x10000).to_i, (rand()*0x10000).to_i])
       @request_queue = request_queue
-
-      @state_mgr = State.new(config)
+      @state_mgr = state_mgr
 
       @send_thread = nil
       @shutdown = false
@@ -41,8 +40,8 @@ module LogCollector
     def schedule_send_requests
       $logger.debug "schedule send requests"
       @send_thread = Thread.new do
-        Thread.current['name'] = 'sender'
-        Thread.current['started'] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
+        Thread.current[:name] = 'sender'
+        Thread.current[:started] = Time.now.strftime "%Y%m%dT%H%M%S.%L"
         Thread.current.priority = 0
         loop do
           begin

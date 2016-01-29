@@ -72,8 +72,8 @@ module LogCollector
     end
 
     def get_thread_id
-      thread_id = "#{Thread.current['name']}-#{Thread.current.object_id}"
-      thread_id << "/#{Thread.current['started']}" if Thread.current['started']
+      thread_id = "#{Thread.current[:name]}-#{Thread.current.object_id}"
+      thread_id << "/#{Thread.current[:started]}" if Thread.current[:started]
       thread_id
     end
 

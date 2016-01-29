@@ -30,7 +30,7 @@ require 'lc/buftok'
 
 include LogCollector::ErrorUtils
 
-Thread.current['name'] = 'main'
+Thread.current[:name] = 'main'
 
 options = {
   configfile: 'log-collector.conf',
@@ -69,9 +69,10 @@ $logger.debug("Debugging #{$logger.process_id}...")
 config = LogCollector::Config.new(options[:configfile])
 event_queue = SizedQueue.new(config.queue_size)
 request_queue = SizedQueue.new(1)
-@sender = LogCollector::Sender.new(config,options[:identity],request_queue)
+state_mgr = LogCollector::State.new(config)
+@sender = LogCollector::Sender.new(config,options[:identity],request_queue,state_mgr)
 @spooler = LogCollector::Spooler.new(config,event_queue,request_queue)
-@monitor = LogCollector::Monitor.new(config,event_queue)
+@monitor = LogCollector::Monitor.new(config,event_queue,state_mgr)
 
 @shutdown_mutex = Mutex.new
 
@@ -99,16 +100,16 @@ def shutdown
 end
 
 Signal.trap("HUP") do
-  Thread.current['name'] = "SIGHUP-#{Thread.current.object_id}"
+  Thread.current[:name] = "SIGHUP-#{Thread.current.object_id}"
   $logger.info "caught HUP signal, ignoring"
 end
 Signal.trap("TERM") do
-  Thread.current['name'] = "SIGTERM-#{Thread.current.object_id}"
+  Thread.current[:name] = "SIGTERM-#{Thread.current.object_id}"
   $logger.info "caught TERM signal, shutting down"
   shutdown
 end
 Signal.trap("INT") do
-  Thread.current['name'] = "SIGINT-#{Thread.current.object_id}"
+  Thread.current[:name] = "SIGINT-#{Thread.current.object_id}"
   $logger.info "caught INT signal, shutting down"
   shutdown
 end
